@@ -1,0 +1,351 @@
+# commodity_radar — 手动输入兜底数据
+#
+# 使用规则：
+# 1) 任何 fetcher 抓取失败时，rules.py 会优先读取本文件对应字段
+# 2) 你也可以把任何字段的 value 改为 null，让评分时显式忽略
+# 3) 时间戳缺省时使用今日；建议手动填实际观测日期，便于历史比对
+# 4) confidence 默认 "medium"（manual）；如果是非常确定可设 "high"
+#
+# 字段命名约定：
+#   *_anomaly_pct        : 与"常年"比的百分比偏离（-30 = 低 30%）
+#   *_consecutive_*_days : 连续天数（用于趋势规则）
+#   *_change_*           : 同比/环比变化
+#   _mt / _kt            : 百万吨 / 千吨
+#   _pp                  : 百分点 (percentage points)
+#
+# 日期：所有 timestamp 字段建议 ISO 8601（YYYY-MM-DD）
+
+snapshot_date: "2026-05-31"
+
+# =====================================================================
+# 共同指标：ENSO（若 fetchers/enso.py 抓取成功，本节自动忽略）
+# =====================================================================
+common:
+  nino34:
+    value: 0.7
+    unit: "°C"
+    timestamp: "2026-05-26"
+    source: "NOAA CPC (manual cache)"
+    notes: "周度 Niño 3.4 海温异常"
+
+  oni:
+    value: 0.6
+    unit: "°C"
+    timestamp: "2026-05-15"
+    notes: "Oceanic Niño Index 月度"
+
+  oni_consecutive_months_above_0_5:
+    value: 2
+    unit: "months"
+    notes: "连续超过 +0.5 的月数；>=3 视为确认厄尔尼诺"
+
+  soi:
+    value: -0.8
+    unit: "index"
+    timestamp: "2026-05-30"
+
+  soi_consecutive_negative_weeks:
+    value: 4
+    unit: "weeks"
+
+  enso_state:
+    value: "El Niño Watch"
+    notes: "可选: Neutral / El Niño Watch / El Niño / Strong El Niño / La Niña Watch / La Niña / Strong La Niña"
+
+# =====================================================================
+# 共同指标：市场价格（market.py 失败时使用）
+# =====================================================================
+market:
+  brent_price_usd:
+    value: 82.5
+    unit: "USD/bbl"
+    timestamp: "2026-05-30"
+  brent_consecutive_up_days:
+    value: 3
+    unit: "days"
+    notes: ">=3 视为'连续上涨'，>=5 视为'连续上涨并维持高位'"
+
+  # 油脂替代品（棕榈油用）
+  soybean_oil_price_usd:
+    value: 52.0
+    unit: "cents/lb"
+    timestamp: "2026-05-30"
+  soybean_oil_consecutive_up_days: {value: 2, unit: "days"}
+
+  rapeseed_oil_price_usd:
+    value: 1180.0
+    unit: "USD/mt"
+    timestamp: "2026-05-30"
+  rapeseed_oil_consecutive_up_days: {value: 2, unit: "days"}
+
+  sunflower_oil_price_usd:
+    value: 1090.0
+    unit: "USD/mt"
+    timestamp: "2026-05-30"
+  sunflower_oil_consecutive_up_days: {value: 1, unit: "days"}
+
+  # 合成胶 / 丁二烯（橡胶用）
+  butadiene_price_usd:
+    value: 1250.0
+    unit: "USD/mt"
+    timestamp: "2026-05-30"
+  butadiene_consecutive_up_days: {value: 2, unit: "days"}
+
+  br_synthetic_price_usd:
+    value: 1480.0
+    unit: "USD/mt"
+    timestamp: "2026-05-30"
+  br_consecutive_up_days: {value: 2, unit: "days"}
+
+  sbr_synthetic_price_usd:
+    value: 1520.0
+    unit: "USD/mt"
+    timestamp: "2026-05-30"
+  sbr_consecutive_up_days: {value: 1, unit: "days"}
+
+# =====================================================================
+# 白糖
+# =====================================================================
+sugar:
+  # ---- 印度 ----
+  india_monsoon_anomaly_pct:
+    value: -8.0
+    unit: "%"
+    timestamp: "2026-05-28"
+    notes: "6-9 月季风季降雨距平"
+  india_monsoon_below_normal_weeks: {value: 1, unit: "weeks"}
+
+  maharashtra_rainfall_anomaly_pct: {value: -12.0, unit: "%"}
+  karnataka_rainfall_anomaly_pct:   {value: -18.0, unit: "%"}
+  up_rainfall_anomaly_pct:          {value: -3.0,  unit: "%"}
+  up_high_temp_event: {value: false, notes: "北方邦高温/降雨事件 bool"}
+
+  india_reservoir_level_pct:
+    value: 78.0
+    unit: "% of normal"
+    timestamp: "2026-05-28"
+
+  india_sugar_production_mt:
+    value: 31.5
+    unit: "million MT"
+    timestamp: "2026-05-15"
+    notes: "ISMA/USDA 最新预估"
+  india_sugar_production_change_mt:
+    value: -0.4
+    unit: "million MT"
+    notes: "本期 vs 上期；负数=下调"
+
+  india_export_policy:
+    value: "no_change"
+    notes: "可选: open / no_change / restriction / ban_extended / new_ban"
+  india_export_quota_mt: {value: 1.5, unit: "million MT"}
+  india_domestic_sugar_price_inr: {value: 4150, unit: "INR/quintal"}
+
+  # ---- 巴西 ----
+  brazil_cs_rainfall_mm: {value: 35.0, unit: "mm/week"}
+  brazil_cs_crush_mt:
+    value: 285.0
+    unit: "million MT"
+    timestamp: "2026-05-28"
+    notes: "中南部累计压榨"
+  brazil_cs_crush_yoy_pct: {value: -2.0, unit: "%"}
+  brazil_sugar_production_mt: {value: 39.0, unit: "million MT"}
+  brazil_sugar_mix_pct:
+    value: 48.5
+    unit: "%"
+    notes: "糖醇比 = 制糖比例"
+  brazil_sugar_mix_change_pp: {value: -1.0, unit: "pp"}
+  brazil_ethanol_price_brl: {value: 2.85, unit: "BRL/L"}
+  brazil_ethanol_consecutive_up_days: {value: 2, unit: "days"}
+  brazil_port_delay_days: {value: 5.0, unit: "days"}
+
+  # ---- 泰国 ----
+  thailand_rainfall_anomaly_pct: {value: -10.0, unit: "%"}
+  thailand_rainfall_below_normal_weeks: {value: 2, unit: "weeks"}
+  thailand_cane_area_ha: {value: 1850000, unit: "ha"}
+  thailand_cane_purchase_price_thb: {value: 1380, unit: "THB/MT"}
+  thailand_disease_news:
+    value: "none"
+    notes: "白叶病/病害近期新闻摘要"
+  thailand_sugar_production_mt: {value: 9.2, unit: "million MT"}
+  thailand_sugar_production_change_mt: {value: -0.2, unit: "million MT"}
+  thailand_sugar_export_mt: {value: 7.0, unit: "million MT"}
+
+  # ---- 其他 ----
+  eu_beet_area_ha: {value: 1450000, unit: "ha"}
+  eu_beet_area_change_pct: {value: -1.5, unit: "%"}
+  eu_summer_heat_drought_event: {value: false}
+  china_guangxi_yunnan_weather_event:
+    value: "normal"
+    notes: "可选: normal / drought / frost / flood / severe"
+  china_sugar_production_mt: {value: 10.0, unit: "million MT"}
+  china_sugar_import_mt: {value: 4.2, unit: "million MT"}
+
+# =====================================================================
+# 棕榈油
+# =====================================================================
+palm:
+  # ---- 印尼 ----
+  sumatra_rainfall_anomaly_pct: {value: -5.0, unit: "%"}
+  kalimantan_rainfall_anomaly_pct: {value: -8.0, unit: "%"}
+  indonesia_core_rainfall_below_normal_weeks:
+    value: 2
+    unit: "weeks"
+    notes: "核心区(苏门答腊+加里曼丹)降雨低于正常 20%+ 的连续周数；>=4 触发规则"
+
+  indonesia_cpo_production_mt: {value: 48.5, unit: "million MT"}
+  indonesia_cpo_production_change_mt:
+    value: -0.3
+    unit: "million MT"
+    notes: "本次预估 - 上次预估；<-1 触发"
+
+  indonesia_biodiesel_mandate:
+    value: "B40"
+    notes: "可选: B35 / B40 / B50_announced / B50_implementing / B50_postponed / B50_cancelled"
+  indonesia_export_policy:
+    value: "no_change"
+    notes: "可选: no_change / DMO_tightened / export_tax_up / export_restriction"
+  indonesia_export_mt: {value: 28.5, unit: "million MT"}
+  indonesia_fertilizer_energy_news: {value: "none"}
+
+  # ---- 马来西亚 (MPOB) ----
+  mpob_cpo_production_mt:
+    value: 1.62
+    unit: "million MT"
+    timestamp: "2026-04-30"
+    notes: "最新月产量"
+  mpob_cpo_production_5y_avg_mt:
+    value: 1.70
+    unit: "million MT"
+    notes: "同月份过去 5 年均值（季节性基准）"
+  mpob_end_stock_mt:
+    value: 1.95
+    unit: "million MT"
+    timestamp: "2026-04-30"
+    notes: "月末库存；<180 +8, <160 +15, >220 -10"
+  mpob_stock_mom_change_pct: {value: -3.0, unit: "%"}
+  mpob_export_mt: {value: 1.30, unit: "million MT"}
+  mpob_export_mom_change_pct: {value: 5.0, unit: "%"}
+  mpob_import_mt: {value: 0.04, unit: "million MT"}
+  mpob_ffb_price_myr: {value: 720.0, unit: "MYR/MT"}
+  mpob_oer_pct:
+    value: 19.8
+    unit: "%"
+    notes: "出油率；如无法自动获取允许手动填"
+
+  sabah_rainfall_anomaly_pct: {value: -3.0, unit: "%"}
+  sarawak_rainfall_anomaly_pct: {value: -2.0, unit: "%"}
+  peninsular_rainfall_anomaly_pct: {value: 0.0, unit: "%"}
+
+  # ---- 需求 ----
+  india_palm_import_mt: {value: 0.55, unit: "million MT (月)"}
+  india_palm_import_mom_change_pct: {value: 2.0, unit: "%"}
+  india_edible_oil_stock_mt: {value: 2.1, unit: "million MT"}
+  india_import_profit_usd: {value: 25.0, unit: "USD/MT"}
+
+  china_palm_import_mt: {value: 0.45, unit: "million MT (月)"}
+  china_palm_import_mom_change_pct: {value: 8.0, unit: "%"}
+  china_port_stock_mt: {value: 0.42, unit: "million MT"}
+  china_soy_palm_spread_usd: {value: 35.0, unit: "USD/MT", notes: "豆-棕价差"}
+
+  # ---- 衍生信号 ----
+  brent_diesel_crack_usd: {value: 22.0, unit: "USD/bbl"}
+  biodiesel_margin_usd: {value: 60.0, unit: "USD/MT"}
+
+# =====================================================================
+# 天然橡胶
+# =====================================================================
+rubber:
+  # ---- 供应/天气 ----
+  thailand_south_rainfall_anomaly_pct: {value: 8.0, unit: "%"}
+  thailand_south_extreme_event:
+    value: "normal"
+    notes: "可选: normal / heavy_rain / drought / flood"
+
+  thai_field_latex_price_thb:
+    value: 62.0
+    unit: "THB/kg"
+    timestamp: "2026-05-30"
+  thai_field_latex_consecutive_up_days: {value: 2, unit: "days"}
+
+  thai_cup_lump_price_thb:
+    value: 48.0
+    unit: "THB/kg"
+    timestamp: "2026-05-30"
+  thai_cup_lump_consecutive_up_days: {value: 1, unit: "days"}
+
+  thai_rss3_price_usd: {value: 1850, unit: "USD/MT"}
+  thai_str20_price_usd: {value: 1720, unit: "USD/MT"}
+
+  indonesia_rubber_rainfall_anomaly_pct: {value: 0.0, unit: "%"}
+  vietnam_rainfall_anomaly_pct: {value: 5.0, unit: "%"}
+  vietnam_tapping_status: {value: "normal"}
+  china_yunnan_rubber_weather: {value: "normal"}
+  china_hainan_rubber_weather: {value: "normal"}
+
+  anrpc_production_forecast_kt: {value: 14250, unit: "kt"}
+  anrpc_forecast_change_kt:
+    value: 0.0
+    unit: "kt"
+    notes: "本月报告 - 上月报告；负数=下调"
+
+  # ---- 中国需求 ----
+  china_semi_steel_tire_operating_rate_pct: {value: 72.0, unit: "%"}
+  china_semi_steel_op_rate_change_pct: {value: 1.5, unit: "%", notes: "周度环比"}
+  china_full_steel_tire_operating_rate_pct: {value: 58.0, unit: "%"}
+  china_full_steel_op_rate_change_pct: {value: 1.0, unit: "%"}
+
+  china_tire_export_yoy_pct: {value: 6.0, unit: "%"}
+  china_vehicle_sales_mom_pct: {value: 2.0, unit: "%"}
+  china_nev_export_units: {value: 180000, unit: "units (月)"}
+  china_heavy_truck_sales_units: {value: 85000, unit: "units (月)"}
+  china_pmi: {value: 50.4, unit: "index"}
+  china_tire_company_inventory_days: {value: 42.0, unit: "days"}
+
+  # ---- 库存 ----
+  qingdao_bonded_stock_kt: {value: 168.0, unit: "kt"}
+  qingdao_bonded_stock_change_pct: {value: -2.5, unit: "%"}
+  qingdao_general_trade_stock_kt: {value: 320.0, unit: "kt"}
+  shfe_ru_stock_kt: {value: 195.0, unit: "kt"}
+  shfe_ru_stock_change_pct: {value: -1.2, unit: "%"}
+  ine_nr20_stock_kt: {value: 88.0, unit: "kt"}
+  ine_nr20_stock_change_pct: {value: -0.8, unit: "%"}
+  japan_singapore_stock_kt: {value: 12.0, unit: "kt"}
+  spot_premium_discount_yuan:
+    value: -150.0
+    unit: "CNY/MT"
+    notes: "现货升贴水；负=贴水"
+
+  china_natural_rubber_import_mt:
+    value: 0.55
+    unit: "million MT (月)"
+  china_natural_rubber_import_mom_pct: {value: 4.0, unit: "%"}
+
+  # ---- 衍生信号 ----
+  natural_synthetic_spread_usd: {value: 350.0, unit: "USD/MT"}
+  # 资金行情判定：期货上涨但现货不涨、库存不降
+  nr_futures_up_but_spot_flat:
+    value: false
+    notes: "true=可能是资金行情；规则会在报告中加标记而非加分"
+
+# =====================================================================
+# 政策/新闻 — 手动录入近期重要事件
+# 程序会扫描每条 message 字段，与 config.yaml 的 critical_keywords 匹配
+# 匹配成功的会写入 events 表 + 触发预警
+# =====================================================================
+manual_events:
+  - timestamp: "2026-05-30"
+    commodity: "sugar"
+    type: "policy"
+    severity: "info"
+    message: "ISMA 维持 2025/26 印度产量预估不变"
+  - timestamp: "2026-05-29"
+    commodity: "palm"
+    type: "market"
+    severity: "info"
+    message: "MPOB 月报：4 月库存环比小幅下降"
+  - timestamp: "2026-05-28"
+    commodity: "rubber"
+    type: "weather"
+    severity: "info"
+    message: "泰国南部本周降雨正常，割胶未受明显影响"

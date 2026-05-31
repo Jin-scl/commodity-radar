@@ -1,0 +1,109 @@
+# commodity_radar 全局配置
+# 修改后无需重启，下次 main.py 调用自动生效
+
+project:
+  name: commodity_radar
+  version: "1.0.0"
+  timezone: "Asia/Shanghai"
+
+paths:
+  data_raw: "data/raw"
+  data_processed: "data/processed"
+  reports: "reports"
+  manual_inputs: "manual_inputs.yaml"
+  database: "data/processed/commodity_radar.db"
+  log_file: "data/raw/commodity_radar.log"
+
+# 跟踪品种
+commodities:
+  - sugar
+  - palm
+  - rubber
+
+# 风险等级阈值（spec 第五节）
+risk_levels:
+  - {min: 0,  max: 30,  level: "green",  label: "绿色", desc: "无明显利多"}
+  - {min: 31, max: 50,  level: "yellow", label: "黄色", desc: "局部扰动"}
+  - {min: 51, max: 70,  level: "orange", label: "橙色", desc: "多项指标偏多"}
+  - {min: 71, max: 85,  level: "red",    label: "红色", desc: "强供需冲击"}
+  - {min: 86, max: 100, level: "purple", label: "紫色", desc: "极端行情风险"}
+
+# 品种内部分类权重（v1 仅用于报告分类展示；不参与最终分数计算）
+weights:
+  sugar:
+    india: 0.30
+    brazil: 0.25
+    thailand: 0.20
+    global_stock: 0.15
+    china_eu: 0.10
+  palm:
+    indonesia: 0.30
+    malaysia: 0.30
+    biodiesel_oil: 0.20
+    demand_in_cn: 0.10
+    substitute_oil: 0.10
+  rubber:
+    asean_supply: 0.30
+    china_demand: 0.25
+    inventory: 0.25
+    oil_synth: 0.15
+    policy_fx: 0.05
+
+# 预警阈值
+alerts:
+  score_threshold: 71              # 单品种当日 >= 71 触发
+  score_change_1d_threshold: 10    # 1 日上升 >= 10 触发
+  score_change_7d_threshold: 20    # 7 日上升 >= 20 触发
+  # 关键政策新闻关键词（hit 即触发）
+  critical_keywords:
+    - "印度糖出口禁令"
+    - "印度糖出口限制"
+    - "印度 sugar export ban"
+    - "Indonesia B50"
+    - "Indonesia B40"
+    - "印尼棕榈油出口限制"
+    - "ANRPC production downgrade"
+    - "ANRPC 下调"
+    - "MPOB stock"
+    - "MPOB 库存"
+    - "drought Thailand"
+    - "Thailand flood"
+    - "India monsoon failure"
+
+# 数据新鲜度（小时）；超过则 confidence 降为 low
+freshness:
+  weather_hours: 168    # 1 周
+  market_hours: 48      # 2 天
+  enso_hours: 720       # 30 天（NOAA 周度发布）
+  inventory_hours: 168
+  policy_hours: 720
+
+# 抓取器开关（False 则跳过该 fetcher，直接走 manual_inputs.yaml）
+fetchers:
+  enso: true
+  weather: false        # v1 全 manual
+  market: true          # yfinance
+  news: true            # RSS
+  sugar: true           # 编排
+  palm: true            # 编排
+  rubber: true          # 编排
+
+# 报告偏好
+report:
+  language: "zh"
+  include_explanations: true
+  highlight_manual: true
+  fallback_threshold_low_confidence: 0.5
+  # 是否在报告顶部加 YAML frontmatter（供 Obsidian / Dataview 使用）
+  include_frontmatter: true
+
+# Obsidian 集成：同时把报告写入 Obsidian vault
+# enabled=false 时仅写本地 reports/
+obsidian:
+  # 改成你的 Obsidian vault 路径后将 enabled 设为 true。
+  # 支持 ~ 展开，也支持绝对路径。
+  enabled: false
+  vault_path: "~/Documents/Obsidian Vault"
+  subfolder: "commodity_radar"     # vault 下的子目录；留空则写到 vault 根
+  # 是否在子目录里建一个 README.md 索引文件（首次写时自动建）
+  create_index: true

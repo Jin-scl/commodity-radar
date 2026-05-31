@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Secrets — 永不 commit
+.env
+.env.local
+*.secret
+
+# 运行时数据（可重新生成）
+data/raw/*.log
+data/processed/*.db
+data/processed/*.sqlite
+
+# 生成的报告（每次 run-all 会重新生成；如需追踪可去掉此行）
+reports/*.md
+
+# IDE
+.vscode/
+.idea/
+*.swp
+.DS_Store
