@@ -5,7 +5,7 @@ from dataclasses import asdict
 from datetime import datetime
 from typing import Optional
 
-from src.indicators.rules import RULES_BY_COMMODITY, RuleResult
+from src.indicators.rules import RULES_BY_COMMODITY, RuleResult, run_rule
 from src.utils import get_logger, load_config
 from src.storage.database import Database, today_str
 
@@ -45,40 +45,88 @@ def _conclude(score: int, change_1d: Optional[int],
     return "；".join(parts) or "中性，需要继续验证"
 
 
-# 数据置信度衰减系数（low 数据不应该和 high 数据等权贡献分数）
-CONFIDENCE_MULT = {"high": 1.0, "medium": 0.8, "low": 0.4}
+# 默认评分参数（可被 config.yaml::scoring 覆盖）
+_DEFAULT_CONFIDENCE_MULT = {"high": 1.0, "medium": 0.8, "low": 0.4, "none": 0.0}
+_DEFAULT_CATEGORY_CAP = 25
 
-# 单 category 贡献上限（避免重复计分把同一风险叠加过多）
-CATEGORY_CAP = 25
+# 兼容旧 import（测试用）
+CONFIDENCE_MULT = dict(_DEFAULT_CONFIDENCE_MULT)
+CATEGORY_CAP = _DEFAULT_CATEGORY_CAP
 
 
-def _rule_confidence(rule_res: "RuleResult", snapshot: dict) -> tuple[str, float]:
-    """规则触发时，evidence 中所有 indicator 的 confidence 取最低；
-    返回 (worst_confidence, multiplier)。"""
+def _get_confidence_mult(cfg: dict) -> dict:
+    user = (cfg.get("scoring", {}) or {}).get("confidence_mult", {}) or {}
+    out = dict(_DEFAULT_CONFIDENCE_MULT)
+    out.update({k: float(v) for k, v in user.items()})
+    return out
+
+
+def _get_category_cap(cfg: dict, commodity: str, category: str) -> int:
+    caps = (cfg.get("scoring", {}) or {}).get("category_caps", {}) or {}
+    c_caps = caps.get(commodity)
+    if isinstance(c_caps, dict) and category in c_caps:
+        return int(c_caps[category])
+    return int(caps.get("default", _DEFAULT_CATEGORY_CAP))
+
+
+def _rule_confidence(rule_res: RuleResult, snapshot: dict,
+                     mult_map: Optional[dict] = None) -> tuple[str, float]:
+    """规则置信度按 input_keys 中所有 indicator 的最低 confidence 取值。
+    缺失的 input_key 视为 'none'（最严苛），避免规则"假装高置信度"。"""
+    mult_map = mult_map or _DEFAULT_CONFIDENCE_MULT
     confs: list[str] = []
-    for ind_name in rule_res.evidence.keys():
+    keys = list(rule_res.input_keys or ())
+    if not keys:
+        # 兜底：用 evidence（排除内部 _ 前缀字段）
+        keys = [k for k in (rule_res.evidence or {}).keys()
+                if not k.startswith("_")]
+    for ind_name in keys:
         entry = snapshot.get(ind_name)
-        if entry:
+        if not entry or entry.get("value") in (None, ""):
+            confs.append("none")
+        else:
             confs.append(entry.get("confidence") or "medium")
     if not confs:
         return "high", 1.0
-    # high < medium < low（按系数）
-    worst = min(confs, key=lambda c: CONFIDENCE_MULT.get(c, 0.6))
-    return worst, CONFIDENCE_MULT.get(worst, 0.6)
+    worst = min(confs, key=lambda c: mult_map.get(c, 0.5))
+    return worst, mult_map.get(worst, 0.5)
+
+
+def _confidence_int(conf: str) -> int:
+    return {"high": 100, "medium": 70, "low": 30, "none": 0}.get(conf, 60)
 
 
 def _overall_confidence(snapshot: dict) -> int:
-    """所有 indicator 置信度的均值（0-100），用于报告展示。"""
+    """所有 indicator 置信度的均值（0-100），用于报告整体展示。"""
     if not snapshot:
         return 0
-    score_map = {"high": 100, "medium": 70, "low": 30}
     total = 0
     n = 0
     for entry in snapshot.values():
         c = (entry or {}).get("confidence") or "medium"
-        total += score_map.get(c, 60)
+        total += _confidence_int(c)
         n += 1
     return int(total / n) if n else 0
+
+
+def _triggered_confidence(triggered: list[RuleResult], snapshot: dict) -> int:
+    """触发规则的 input_key 最低置信度均值；更能反映"真正推动分数的数据质量"。"""
+    if not triggered:
+        return 100  # 没触发即没风险，置信度满分
+    vals = []
+    for r in triggered:
+        keys = list(r.input_keys or ())
+        confs = []
+        for k in keys:
+            entry = snapshot.get(k)
+            if not entry or entry.get("value") in (None, ""):
+                confs.append("none")
+            else:
+                confs.append(entry.get("confidence") or "medium")
+        if confs:
+            worst = min(confs, key=lambda c: _confidence_int(c))
+            vals.append(_confidence_int(worst))
+    return int(sum(vals) / len(vals)) if vals else 100
 
 
 def evaluate_commodity(commodity: str, snapshot: dict,
@@ -108,7 +156,7 @@ def evaluate_commodity(commodity: str, snapshot: dict,
 
     for rule_fn in rules:
         try:
-            res = rule_fn(snapshot)
+            res = run_rule(rule_fn, snapshot)  # 自动收集 input_keys
         except Exception as e:
             res = None
             logger.warning("[rule error] %s %s: %s",
@@ -116,30 +164,31 @@ def evaluate_commodity(commodity: str, snapshot: dict,
         if res is not None:
             triggered.append(res)
 
-    # 置信度衰减（修改 RuleResult 的 score_delta，记录原值便于审计）
+    # 置信度衰减（按 input_keys 真实判定字段；缺失字段视为 'none' → ×0）
+    mult_map = _get_confidence_mult(cfg)
     for r in triggered:
         original = r.score_delta
-        worst, mult = _rule_confidence(r, snapshot)
+        worst, mult = _rule_confidence(r, snapshot, mult_map=mult_map)
         r.score_delta = int(round(original * mult))
-        # evidence 里塞一份 _confidence 记录，方便报告展示
         r.evidence["_rule_confidence"] = worst
         r.evidence["_original_delta"] = original
 
-    # Category 聚合 + 封顶（重复计分抑制）
+    # Category 聚合 + 封顶（按 config.scoring.category_caps 可精细化）
     category_raw: dict[str, int] = {}
     for r in triggered:
         category_raw.setdefault(r.category, 0)
         category_raw[r.category] += r.score_delta
-    category_capped: dict[str, int] = {
-        k: max(-CATEGORY_CAP, min(CATEGORY_CAP, v))
-        for k, v in category_raw.items()
-    }
+    category_capped: dict[str, int] = {}
+    for k, v in category_raw.items():
+        cap = _get_category_cap(cfg, commodity, k)
+        category_capped[k] = max(-cap, min(cap, v))
 
     raw_score = sum(category_capped.values())
     final_score = max(0, min(100, raw_score))
     level, label, _ = _classify(final_score, cfg["risk_levels"])
 
     confidence_score = _overall_confidence(snapshot)
+    triggered_confidence = _triggered_confidence(triggered, snapshot)
 
     bullish = [asdict(r) for r in triggered if r.side == "bullish"]
     bearish = [asdict(r) for r in triggered if r.side == "bearish"]
@@ -191,6 +240,7 @@ def evaluate_commodity(commodity: str, snapshot: dict,
         "risk_level": level,
         "risk_level_label": label,
         "confidence_score": confidence_score,
+        "triggered_confidence": triggered_confidence,
         "score_change_1d": change_1d,
         "score_change_7d": change_7d,
         "bullish_factors": bullish,

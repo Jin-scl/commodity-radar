@@ -151,11 +151,82 @@ def manual_section_to_indicators(commodity: str, section: dict,
     return out
 
 
-def indicators_to_snapshot(indicators: Iterable[dict]) -> dict[str, dict]:
-    """把 indicator list 转成 {name: {value, unit, source, ...}} 扁平字典，
-    便于 rules.py 直接按字段名取值。
+def _freshness_hours_for(name: str, freshness_cfg: dict) -> float:
+    """按 indicator 名前缀匹配 freshness 阈值；最长前缀优先。"""
+    by_prefix = (freshness_cfg or {}).get("by_prefix", {}) or {}
+    best_prefix = ""
+    for p in by_prefix:
+        if name.startswith(p) and len(p) > len(best_prefix):
+            best_prefix = p
+    if best_prefix:
+        return float(by_prefix[best_prefix])
+    return float((freshness_cfg or {}).get("default_hours", 168))
+
+
+def effective_confidence(name: str, timestamp: str | None,
+                         stated_confidence: str | None,
+                         as_of_date: str | None = None,
+                         freshness_cfg: dict | None = None) -> str:
+    """按 freshness 自动降级 confidence。
+
+    规则：
+    - timestamp 缺失 → 用 stated_confidence
+    - age <= freshness_hours        → 保持 stated_confidence
+    - freshness < age <= 2*freshness → 至少降到 medium
+    - age > 2*freshness             → 降到 low
+    - age 解析失败 → 用 stated_confidence
+
+    age 按 as_of_date（缺省今日）- timestamp 算。
+    """
+    stated = stated_confidence or "medium"
+    if not timestamp:
+        return stated
+    from datetime import datetime as _dt
+    try:
+        # 兼容 "YYYY-MM-DD" 和 "YYYY-MM-DDT..." 两种
+        ts = _dt.fromisoformat(timestamp.replace("Z", "+00:00")) \
+            if "T" in timestamp else _dt.strptime(timestamp[:10], "%Y-%m-%d")
+        ref = _dt.fromisoformat(as_of_date) if as_of_date and "T" in as_of_date \
+            else _dt.strptime((as_of_date or _dt.now().strftime("%Y-%m-%d"))[:10],
+                              "%Y-%m-%d")
+    except (ValueError, TypeError):
+        return stated
+    # 都转成 naive datetime 比较（取日期级足够）
+    ts_naive = ts.replace(tzinfo=None) if ts.tzinfo else ts
+    ref_naive = ref.replace(tzinfo=None) if ref.tzinfo else ref
+    age_hours = (ref_naive - ts_naive).total_seconds() / 3600.0
+    if age_hours < 0:
+        return stated  # 未来日期不降级
+    hours = _freshness_hours_for(name, freshness_cfg or {})
+    medium_ratio = float((freshness_cfg or {}).get("medium_at_ratio", 1.0))
+    low_ratio = float((freshness_cfg or {}).get("low_at_ratio", 2.0))
+    # 等级排序：high > medium > low
+    rank = {"high": 3, "medium": 2, "low": 1}
+    cap = "high"
+    if age_hours > hours * low_ratio:
+        cap = "low"
+    elif age_hours > hours * medium_ratio:
+        cap = "medium"
+    # 取 stated 和 cap 中较低者
+    if rank.get(stated, 2) <= rank.get(cap, 3):
+        return stated
+    return cap
+
+
+def indicators_to_snapshot(indicators: Iterable[dict],
+                           as_of_date: str | None = None,
+                           freshness_cfg: dict | None = None) -> dict[str, dict]:
+    """把 indicator list 转成 {name: {value, unit, source, confidence, ...}} 扁平字典。
+
+    confidence 字段应用 effective_confidence：根据 timestamp + freshness_cfg
+    自动降级（旧数据降为 medium / 过老降为 low）。
     """
     snap: dict[str, dict] = {}
+    if freshness_cfg is None:
+        try:
+            freshness_cfg = load_config().get("freshness", {})
+        except Exception:
+            freshness_cfg = {}
     for ind in indicators:
         name = ind.get("name")
         if not name:
@@ -166,12 +237,17 @@ def indicators_to_snapshot(indicators: Iterable[dict]) -> dict[str, dict]:
             value = ind["value_text"]
         else:
             value = None
+        stated = ind.get("confidence")
+        eff = effective_confidence(name, ind.get("timestamp"), stated,
+                                   as_of_date=as_of_date,
+                                   freshness_cfg=freshness_cfg)
         snap[name] = {
             "value": value,
             "unit": ind.get("unit"),
             "source": ind.get("source"),
             "timestamp": ind.get("timestamp"),
-            "confidence": ind.get("confidence"),
+            "confidence": eff,
+            "stated_confidence": stated,  # 保留原值供审计
             "is_manual": bool(ind.get("is_manual")),
             "notes": ind.get("notes"),
         }

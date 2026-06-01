@@ -20,9 +20,12 @@ CHANNELS = [
 
 
 def evaluate_alerts(scores: dict[str, dict], db: Database,
-                    config: Optional[dict] = None) -> list[dict]:
-    """根据 scores + 最近 24h events 生成预警列表。
+                    config: Optional[dict] = None,
+                    score_date: Optional[str] = None) -> list[dict]:
+    """根据 scores + score_date 当日 events 生成预警列表。
     返回 [{commodity, severity, message, reason}]
+
+    score_date 缺省时按"现在"取 24h 内 events；指定时按该日期 00:00-23:59 回放。
     """
     cfg = config or load_config()
     a_cfg = cfg.get("alerts", {})
@@ -66,8 +69,16 @@ def evaluate_alerts(scores: dict[str, dict], db: Database,
                             f"({'↑' if regime.get('direction') == 'up' else '↓'} -> {score})"),
             })
 
-    # 关键新闻/政策（events 表中 severity=critical）
-    for ev in db.get_recent_events(hours=24):
+    # 关键新闻/政策事件
+    if score_date:
+        # 按 score_date 当天回放：[score_date, next_day)
+        from datetime import datetime as _dt, timedelta as _td
+        d = _dt.strptime(score_date, "%Y-%m-%d")
+        next_day = (d + _td(days=1)).strftime("%Y-%m-%d")
+        events_iter = db.get_events_between(score_date, next_day)
+    else:
+        events_iter = db.get_recent_events(hours=24)
+    for ev in events_iter:
         if ev.get("severity") == "critical":
             alerts.append({
                 "commodity": ev.get("commodity", "all"),

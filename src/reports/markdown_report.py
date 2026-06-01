@@ -28,6 +28,7 @@ tags:
 {{ c.commodity }}_score: {{ c.final_score }}
 {{ c.commodity }}_level: {{ c.risk_level }}
 {{ c.commodity }}_confidence: {{ c.confidence_score or 0 }}
+{{ c.commodity }}_triggered_confidence: {{ c.triggered_confidence if c.triggered_confidence is not none else 0 }}
 {{ c.commodity }}_change_1d: {{ c.score_change_1d if c.score_change_1d is not none else 0 }}
 {{ c.commodity }}_change_7d: {{ c.score_change_7d if c.score_change_7d is not none else 0 }}
 {%- endfor %}
@@ -45,17 +46,19 @@ REPORT_TEMPLATE = """# Commodity Radar Daily Report - {{ date }}
 
 ## 总览
 
-| 品种 | 风险分 | 等级 | 置信度 | 1日变化 | 7日变化 | 结论 |
-|---|---:|---|---:|---:|---:|---|
+| 品种 | 风险分 | 等级 | 整体置信度 | 触发置信度 | 1日变化 | 7日变化 | 结论 |
+|---|---:|---|---:|---:|---:|---:|---|
 {% for c in commodities -%}
-| {{ labels[c.commodity] }} | {{ c.final_score }} | {{ c.risk_level_label }} | {{ c.confidence_score or '—' }} | {{ fmt_change(c.score_change_1d) }} | {{ fmt_change(c.score_change_7d) }} | {{ c.conclusion }} |
+| {{ labels[c.commodity] }} | {{ c.final_score }} | {{ c.risk_level_label }} | {{ c.confidence_score or '—' }} | {{ c.triggered_confidence if c.triggered_confidence is not none else '—' }} | {{ fmt_change(c.score_change_1d) }} | {{ fmt_change(c.score_change_7d) }} | {{ c.conclusion }} |
 {% endfor %}
+
+> **整体置信度** = 所有指标置信度均值；**触发置信度** = 真正推动分数的指标的置信度（更重要）。差距大说明评分由少数高质量数据驱动，或受多数低质量数据干扰。
 
 {% for c in commodities %}
 ## {{ labels[c.commodity] }}
 
 ### 今日结论
-**{{ c.risk_level_label }}（{{ c.final_score }} 分 ｜ 置信度 {{ c.confidence_score or '—' }}/100）** — {{ c.conclusion }}
+**{{ c.risk_level_label }}（{{ c.final_score }} 分 ｜ 整体置信度 {{ c.confidence_score or '—' }}/100，触发置信度 {{ c.triggered_confidence if c.triggered_confidence is not none else '—' }}/100）** — {{ c.conclusion }}
 
 {% if c.regime_change -%}
 > ⚠️ **等级穿越**：{{ c.regime_change.from }} → {{ c.regime_change.to }}

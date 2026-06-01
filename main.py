@@ -70,7 +70,7 @@ def cmd_report(args):
         commodities = cfg["commodities"]
         _, snaps = build_snapshots(db, commodities, as_of_date=args.date)
         results = evaluate_all(snaps, db=db, score_date=args.date, config=cfg)
-        alerts = evaluate_alerts(results, db, cfg)
+        alerts = evaluate_alerts(results, db, cfg, score_date=args.date)
     # persist=False —— report 命令永远不覆盖 scores
     path = generate(score_date=args.date, alerts=alerts, persist=False)
     print(f"Report: {path}")
@@ -94,8 +94,8 @@ def cmd_run_all(args):
     _, snaps = build_snapshots(db, commodities, as_of_date=args.date)
     results = evaluate_all(snaps, db=db, score_date=args.date, config=cfg)
 
-    # 3) alerts（评分完成后，对 events 表 + scores 共同判断）
-    alerts = evaluate_alerts(results, db, cfg)
+    # 3) alerts（评分完成后，对 events 表 + scores 共同判断；按 score_date 回放）
+    alerts = evaluate_alerts(results, db, cfg, score_date=args.date)
     dispatch_result = dispatch(alerts, args.date or today_str())
     logger.info("alerts dispatched: %s", dispatch_result)
 

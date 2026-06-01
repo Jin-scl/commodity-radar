@@ -12,7 +12,8 @@ snapshot 结构：{indicator_name: {"value": ..., "unit": ..., ...}}
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+import contextvars
+from dataclasses import dataclass, field
 from typing import Callable, Optional
 
 
@@ -25,15 +26,51 @@ class RuleResult:
     side: str             # "bullish" / "bearish" / "neutral"
     evidence: dict        # 触发时关联的指标值，便于报告展示
     flag: Optional[str] = None  # 特殊标记，如 "资金行情"
+    input_keys: tuple[str, ...] = field(default_factory=tuple)
+    # 触发判定时实际访问的指标名 —— 用于置信度计算。
+    # 自动由 _accessed_keys ContextVar 收集，规则函数无需手填。
+
+
+# ContextVar 收集规则函数读了哪些 indicator key
+_accessed_keys: contextvars.ContextVar[Optional[set]] = contextvars.ContextVar(
+    "rule_accessed_keys", default=None)
+
+
+def run_rule(rule_fn: Callable, snap: dict) -> Optional[RuleResult]:
+    """运行规则并自动收集它读取的 key 到 RuleResult.input_keys。
+
+    使用方式（scoring.py）：
+        res = run_rule(rule_fn, snap)
+    """
+    bucket: set = set()
+    token = _accessed_keys.set(bucket)
+    try:
+        res = rule_fn(snap)
+    finally:
+        _accessed_keys.reset(token)
+    if res is not None:
+        # 保留 rule 自己显式声明的 input_keys（如果有），合并 tracked
+        explicit = set(res.input_keys or ())
+        res.input_keys = tuple(sorted(explicit | bucket))
+    return res
 
 
 def _val(snap: dict, key: str, default=None):
-    """安全取值。"""
+    """安全取值；只在字段真实存在且 value 非空时记入 _accessed_keys。
+
+    这样 `_num(snap, "x", 0) or 0` 形式在 x 缺失时返回默认值，
+    input_keys 不会因为这次"形式上的访问"被污染，避免置信度被错误降级。
+    """
     entry = snap.get(key)
     if not entry:
         return default
     v = entry.get("value")
-    return default if v is None else v
+    if v is None:
+        return default
+    bucket = _accessed_keys.get()
+    if bucket is not None:
+        bucket.add(key)
+    return v
 
 
 def _num(snap: dict, key: str, default=None) -> Optional[float]:

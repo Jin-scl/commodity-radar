@@ -77,9 +77,20 @@ def _parse_oni(text: str) -> tuple[float, str, int] | None:
 
 @fetcher("enso", manual_section="common", commodity="common")
 def fetch_enso(db: Database) -> list[dict]:
+    """ENSO partial fallback：
+
+    - Niño 3.4 / ONI 任一成功都用真实数据，confidence=high
+    - 失败的子项从 manual_inputs.yaml::common 同名字段补齐，is_manual=True
+    - 全部失败时 raise，由装饰器统一 fallback
+
+    避免之前的"部分成功 → 装饰器不 fallback → 缺失字段静默丢失"问题。
+    """
+    from datetime import datetime as _dt
+    from src.utils import load_manual_inputs, manual_section_to_indicators
     logger = get_logger()
     out: list[dict] = []
     fetched_at = now_iso()
+    real_names: set[str] = set()
 
     # Niño 3.4
     try:
@@ -96,6 +107,7 @@ def fetch_enso(db: Database) -> list[dict]:
                 "confidence": "high", "is_manual": False,
                 "notes": "Nino 3.4 weekly anomaly (1991-2020 base)",
             })
+            real_names.add("nino34")
     except Exception as e:
         logger.warning("NOAA Niño 3.4 fetch failed: %s", e)
 
@@ -121,10 +133,27 @@ def fetch_enso(db: Database) -> list[dict]:
                 "timestamp": ts, "fetched_at": fetched_at,
                 "confidence": "high", "is_manual": False,
             })
+            real_names.add("oni")
+            real_names.add("oni_consecutive_months_above_0_5")
     except Exception as e:
         logger.warning("NOAA ONI fetch failed: %s", e)
 
+    # Partial fallback：用 manual_inputs.yaml::common 补齐未抓到字段
+    today = _dt.now().strftime("%Y-%m-%d")
+    manual = load_manual_inputs()
+    manual_inds = manual_section_to_indicators(
+        "common", manual.get("common", {}), default_timestamp=today)
+    added_manual = 0
+    for ind in manual_inds:
+        if ind["name"] in real_names:
+            continue
+        ind["is_manual"] = True
+        ind["confidence"] = ind.get("confidence") or "medium"
+        out.append(ind)
+        added_manual += 1
+    logger.info("enso fetch: %d real + %d manual補齊",
+                len(real_names), added_manual)
+
     if not out:
-        # 让 @fetcher 装饰器走 fallback
-        raise RuntimeError("All NOAA ENSO endpoints failed")
+        raise RuntimeError("All NOAA ENSO endpoints failed + manual empty")
     return out

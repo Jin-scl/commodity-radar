@@ -50,24 +50,21 @@ def test_medium_confidence_decay():
 
 
 def test_category_cap_prevents_double_count():
-    """单 category 贡献被 CATEGORY_CAP 限制。
-    构造 4 条同类规则总贡献 +35（>25），应被 cap 到 25。
+    """单 category 贡献被 category_cap 限制。
+    palm.malaysia cap 在 config.yaml 中为 30；
+    三条规则原始 +33，cap 后 30。
     """
-    # malaysia 类规则：stock_lt_160 (+15), production_below_seasonal (+8),
-    # export_up_stock_down (+10) → 总 +33，cap 后 25
     snap = {
         "mpob_end_stock_mt": _entry(1.55, "high"),  # +15
-        "mpob_cpo_production_mt": _entry(1.5, "high"),  # 与下面配合 +8
+        "mpob_cpo_production_mt": _entry(1.5, "high"),  # 配合 +8
         "mpob_cpo_production_5y_avg_mt": _entry(1.7, "high"),
-        "mpob_export_mom_change_pct": _entry(5, "high"),  # 与下面配合 +10
+        "mpob_export_mom_change_pct": _entry(5, "high"),  # 配合 +10
         "mpob_stock_mom_change_pct": _entry(-3, "high"),
     }
     r = evaluate_commodity("palm", snap, db=None, config=CFG)
-    # 三条规则原始总和 +33，cap 到 +25
-    assert r["category_breakdown"]["malaysia"] == CATEGORY_CAP
-    # raw_score 应该等于 category_capped 之和（不含 raw 的原始 33）
-    # confidence 全 high，所以 cap 前应该是 15+8+10=33；cap 后 25
-    assert r["raw_score"] == 25
+    expected_cap = CFG["scoring"]["category_caps"]["palm"]["malaysia"]
+    assert r["category_breakdown"]["malaysia"] == expected_cap
+    assert r["raw_score"] == expected_cap
 
 
 def test_overall_confidence_average():

@@ -70,13 +70,67 @@ alerts:
     - "Thailand flood"
     - "India monsoon failure"
 
-# 数据新鲜度（小时）；超过则 confidence 降为 low
+# 数据新鲜度（小时）；超过则 confidence 自动降为 low
+# 按 indicator name 前缀匹配，缺省用 default_hours
 freshness:
-  weather_hours: 168    # 1 周
-  market_hours: 48      # 2 天
-  enso_hours: 720       # 30 天（NOAA 周度发布）
-  inventory_hours: 168
-  policy_hours: 720
+  default_hours: 168    # 1 周
+  # 单字段精细化（按 indicator name 前缀匹配）
+  by_prefix:
+    nino: 720           # ENSO 30 天
+    oni: 720
+    soi: 168
+    brent: 48           # 市场价格 2 天
+    soybean_oil: 48
+    rapeseed_oil: 48
+    sunflower_oil: 48
+    butadiene: 48
+    br_synthetic: 48
+    sbr_synthetic: 48
+    mpob_: 720          # MPOB 月报 30 天
+    anrpc_: 720
+    india_sugar_production: 720
+    indonesia_cpo_production: 720
+    indonesia_biodiesel: 2160  # 政策 90 天
+    indonesia_export_policy: 2160
+    india_export_policy: 2160
+    qingdao_: 168       # 库存周度
+    shfe_: 168
+    ine_: 168
+  # 等级降级阈值（小时 × multiplier）
+  medium_at_ratio: 1.0   # 超过 freshness 即 medium
+  low_at_ratio: 2.0      # 超过 2× freshness 降为 low
+
+# 评分参数（v2 升级配置化）
+scoring:
+  # 置信度系数：规则贡献 × 系数
+  confidence_mult:
+    high: 1.0
+    medium: 0.8
+    low: 0.4
+    none: 0.0           # 数据完全缺失
+  # 单 category 贡献上限（绝对值），按 commodity.category 精细化
+  category_caps:
+    default: 25
+    sugar:
+      india: 30
+      brazil: 25
+      thailand: 20
+      china_eu: 15
+      weather: 15
+    palm:
+      malaysia: 30
+      indonesia: 30
+      biodiesel_oil: 25
+      demand_in_cn: 20
+      substitute_oil: 15
+      weather: 15
+    rubber:
+      china_demand: 30
+      inventory: 25
+      asean_supply: 25
+      oil_synth: 20
+      policy_fx: 10
+      weather: 15
 
 # 抓取器开关（False 则跳过该 fetcher，直接走 manual_inputs.yaml）
 fetchers:

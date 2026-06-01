@@ -32,21 +32,28 @@ def build_snapshots(db: Database, commodities: list[str],
         dict[str, list[dict]], dict[str, dict]]:
     """对每个 commodity：取最新 indicators + common/market 公共指标。
 
-    as_of_date: 只看 timestamp <= 该日期；为 None 时取当前最新。
+    as_of_date:
+      - 只看 timestamp <= 该日期（按日期回放）
+      - 同时传给 indicators_to_snapshot，让 freshness 按该日期降级 confidence
     seed 数据始终排除（保证不污染最新快照）。
     """
+    cfg = load_config()
+    freshness_cfg = cfg.get("freshness", {})
     inds_by_c: dict[str, list[dict]] = {}
     snaps_by_c: dict[str, dict] = {}
     common_inds = db.get_latest_indicators(commodity="common",
                                            as_of_date=as_of_date)
     market_inds = db.get_latest_indicators(commodity="market",
                                            as_of_date=as_of_date)
-    common_snap = indicators_to_snapshot(common_inds + market_inds)
+    common_snap = indicators_to_snapshot(
+        common_inds + market_inds, as_of_date=as_of_date,
+        freshness_cfg=freshness_cfg)
     for c in commodities:
         own = db.get_latest_indicators(commodity=c, as_of_date=as_of_date)
         all_inds = own + common_inds + market_inds
         inds_by_c[c] = all_inds
-        snap = indicators_to_snapshot(own)
+        snap = indicators_to_snapshot(own, as_of_date=as_of_date,
+                                      freshness_cfg=freshness_cfg)
         for k, v in common_snap.items():
             snap.setdefault(k, v)
         snaps_by_c[c] = snap

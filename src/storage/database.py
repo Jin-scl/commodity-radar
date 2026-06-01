@@ -308,6 +308,23 @@ class Database:
         with self._conn() as c:
             return [dict(r) for r in c.execute(sql, params).fetchall()]
 
+    def get_events_between(self, start: str, end: str,
+                           commodity: str | None = None) -> list[dict]:
+        """[start, end) 区间内的 events；用于 --date 按日期回放预警。
+
+        start/end 支持 'YYYY-MM-DD' 或 ISO datetime 字符串。
+        使用 substr(timestamp, 1, 10) 做日期级比较，覆盖两种格式。
+        """
+        sql = ("SELECT * FROM events WHERE "
+               "substr(timestamp, 1, 10) >= ? AND substr(timestamp, 1, 10) < ?")
+        params: list[Any] = [start[:10], end[:10]]
+        if commodity:
+            sql += " AND commodity = ?"
+            params.append(commodity)
+        sql += " ORDER BY timestamp DESC"
+        with self._conn() as c:
+            return [dict(r) for r in c.execute(sql, params).fetchall()]
+
     # ---------- fetch_log ----------
     def log_fetch(self, fetcher: str, status: str, records_count: int = 0,
                   error: str | None = None, duration_ms: int | None = None) -> None:
