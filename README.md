@@ -61,11 +61,14 @@ open reports/$(date +%F)_daily_report.md
 |---|---|
 | `python main.py fetch` | 跑所有 fetcher，写入 SQLite |
 | `python main.py score` | 读最新指标 → 跑规则 → 写 scores 表 |
-| `python main.py score --date 2026-05-30` | 指定日期重算 |
-| `python main.py report` | 生成 Markdown 报告 |
-| `python main.py report --with-alerts` | 报告内包含预警章节 |
-| `python main.py run-all` | fetch → score → report → alert（cron 用） |
-| `python main.py seed --days 14` | 注入 14 天历史模拟数据 |
+| `python main.py score --date 2026-05-30` | **按日期回放**：只取该日期及之前的快照重算 |
+| `python main.py report` | 生成 Markdown 报告（**不动 scores**，安全多次跑） |
+| `python main.py report --with-alerts` | 报告内包含预警章节（仍不持久化）|
+| `python main.py run-all` | fetch → score → report → alert（cron 用，唯一会写 scores 的） |
+| `python main.py seed --days 14` | 注入 14 天历史模拟数据 (`source='seed'`，不污染最新快照) |
+
+> `--date` 真实按日期回放（`timestamp <= score_date` 过滤），所以 `score --date 2026-05-30` 不会用 5-31 之后写入的数据。
+> `report` 单独跑**不会清空** `scores.triggered_alerts_json`；要刷新预警必须用 `run-all`。
 
 ### 维护手动数据
 
@@ -109,6 +112,7 @@ vim .env
 - 单品种 `final_score >= 71`
 - 单品种 1 日上升 ≥ 10
 - 单品种 7 日上升 ≥ 20
+- **等级穿越** (regime change)：风险等级跨档（绿→黄 / 黄→橙 / 橙→红 / 红→紫）；比纯阈值更稳，避免分数刚好卡阈值反复横跳
 - `events` 表里出现关键政策关键词（印度糖出口禁令 / 印尼 B50 / MPOB 库存阈值穿越…）
 
 ---
@@ -156,6 +160,21 @@ SORT date DESC
 ````
 
 vault 路径不存在或写入失败：本地 `reports/` 仍正常写入；只在日志里 warning，不影响主流程。
+
+### 用 `.env` 覆盖 Obsidian 配置（推荐）
+
+公开仓库的 `config.yaml::obsidian.enabled` 默认 **false**（避免别人 clone 后意外写入自己的 vault）。
+本地使用时不要改 `config.yaml`，用 `.env`（被 `.gitignore` 排除）：
+
+```bash
+cp .env.example .env
+# 在 .env 里取消注释这几行：
+OBSIDIAN_ENABLED=true
+OBSIDIAN_VAULT_PATH=~/Documents/Obsidian Vault
+OBSIDIAN_SUBFOLDER=commodity_radar
+```
+
+这样升级仓库时 `git pull` 不会冲突，也不会把本地路径泄露到提交里。
 
 ---
 
@@ -224,19 +243,28 @@ commodity_radar/
 
 ## 评分模型
 
-**算法**：
+**算法**（v2 升级版）：
 1. 每条规则（`src/indicators/rules.py`）检查 snapshot，输出 `(label, delta, category, side)`
-2. `raw_score = Σ deltas`（正=利多，负=利空）
-3. `final_score = clamp(raw_score, 0, 100)`
-4. 等级映射（`config.yaml::risk_levels`）：
+2. **数据置信度衰减**：每条规则按 evidence 中**最低 confidence** 衰减 delta
+   - high (真实抓取) × 1.0
+   - medium (manual) × 0.8
+   - low (历史 seed / 过期) × 0.4
+3. **Category 封顶 ±25**：同一 category 内所有规则 delta 之和被 clamp 到 `[-25, +25]`，避免同一风险被多条规则重复奖励（如棕榈油库存可能同时触发 3 条规则）
+4. `raw_score = Σ category_capped_deltas` ；`final_score = clamp(raw_score, 0, 100)`
+5. 等级映射（`config.yaml::risk_levels`）：
    - 0-30 🟢 绿色（无明显利多）
    - 31-50 🟡 黄色（局部扰动）
    - 51-70 🟠 橙色（多项指标偏多）
    - 71-85 🔴 红色（强供需冲击）
    - 86-100 🟣 紫色（极端行情风险）
-5. 与昨日 / 上周分数对比 → `score_change_1d`, `score_change_7d`
+6. 与昨日 / 上周分数对比 → `score_change_1d`, `score_change_7d`
+7. 与昨日触发规则集合 diff → **变化来源**（added / removed / persistent rule ids），在报告 "较昨日变化来源" 章节展示
+8. 等级与昨日不同 → **等级穿越** (regime change)，单独写入报告 + 触发预警
 
-**分类权重**（`config.yaml::weights`）v1 仅用于报告分类展示，不参与最终分数计算。
+**置信度分数**：每个品种在报告总览表还会显示一个 `0-100` 的整体置信度（high=100, medium=70, low=30 取均值）。
+
+**分类权重**（`config.yaml::weights`）v1 仅用于报告分类展示与 category cap 上限；不直接缩放分数。
+计划在 v2 切换到 `weighted_sum × scale` 模式（待充分回测后）。
 
 ---
 
