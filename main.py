@@ -28,8 +28,8 @@ from src.indicators.scoring import evaluate_all, persist_scores
 from src.reports.daily_report import build_snapshots, generate
 from src.storage.database import today_str
 from src.utils import (
-    get_database, get_logger, load_manual_inputs,
-    manual_section_to_indicators,
+    get_database, get_logger, indicators_to_snapshot,
+    load_manual_inputs, manual_section_to_indicators,
 )
 
 
@@ -47,7 +47,8 @@ def cmd_score(args):
     from src.utils import load_config
     cfg = load_config()
     commodities = cfg["commodities"]
-    _, snaps = build_snapshots(db, commodities)
+    # 真实按日期回放：传 as_of_date 给 build_snapshots
+    _, snaps = build_snapshots(db, commodities, as_of_date=args.date)
     results = evaluate_all(snaps, db=db, score_date=args.date, config=cfg)
     persist_scores(results, db)
     for c, r in results.items():
@@ -58,16 +59,20 @@ def cmd_score(args):
 
 
 def cmd_report(args):
+    """单独跑 report：默认 **不动 scores 表**（避免清空已持久化的 alerts）。
+    要刷新 scores + 触发预警，请用 run-all。
+    """
     db = get_database()
     alerts = []
     if args.with_alerts:
         from src.utils import load_config
         cfg = load_config()
         commodities = cfg["commodities"]
-        _, snaps = build_snapshots(db, commodities)
+        _, snaps = build_snapshots(db, commodities, as_of_date=args.date)
         results = evaluate_all(snaps, db=db, score_date=args.date, config=cfg)
         alerts = evaluate_alerts(results, db, cfg)
-    path = generate(score_date=args.date, alerts=alerts)
+    # persist=False —— report 命令永远不覆盖 scores
+    path = generate(score_date=args.date, alerts=alerts, persist=False)
     print(f"Report: {path}")
     return 0
 
@@ -86,7 +91,7 @@ def cmd_run_all(args):
     # 2) score（在 build_snapshots 之后；只算一次）
     cfg = load_config()
     commodities = cfg["commodities"]
-    _, snaps = build_snapshots(db, commodities)
+    _, snaps = build_snapshots(db, commodities, as_of_date=args.date)
     results = evaluate_all(snaps, db=db, score_date=args.date, config=cfg)
 
     # 3) alerts（评分完成后，对 events 表 + scores 共同判断）
@@ -104,8 +109,13 @@ def cmd_run_all(args):
 
 
 def cmd_seed(args):
-    """注入过去 N 天历史 indicators + scores，让 1日/7日变化有真实数字。
-    使用 manual_inputs.yaml 当前值 + 小幅随机扰动作为历史。
+    """注入过去 N 天历史 scores，让 1日/7日变化有真实数字。
+
+    设计：
+    - seed 写的 indicator 一律 source="seed"
+    - get_latest_indicators 默认排除 source='seed'，所以**真实 fetch 永远不会被 seed 污染**
+    - 但 seed 仍写入 indicators 表，便于以后做历史时间序列分析
+    - scores 表写入 days..1 范围内的历史评分（用扰动 snapshot 算）
     """
     logger = get_logger()
     db = get_database()
@@ -116,35 +126,50 @@ def cmd_seed(args):
     random.seed(20260531)  # 可复现
 
     manual = load_manual_inputs()
-    # 注意：seed 不回填 common/market —— 这两段由真实 fetcher 当日抓取，
-    # 失败时 base.fetcher 自动 fallback 到 manual_inputs.yaml 当日数据，
-    # 不需要 seed 历史（否则历史 timestamp 可能压过真实抓取结果）
+    # seed 全品种（包括 common/market），因为评分需要这些字段；
+    # 但所有 seed 数据用 source='seed'，不影响最新快照
     sections = {
+        "common": "common", "market": "market",
         "sugar": "sugar", "palm": "palm", "rubber": "rubber",
     }
 
     inserted = 0
-    for n in range(days, 0, -1):  # days..1，保留 today 留给 fetch
+    for n in range(days, 0, -1):  # days..1
         date = (today - timedelta(days=n)).strftime("%Y-%m-%d")
         for commodity, sec in sections.items():
             inds = manual_section_to_indicators(
                 commodity, manual.get(sec, {}), default_timestamp=date)
-            # 给数值型字段加一点扰动（±5%）
             for ind in inds:
                 if ind.get("value_num") is not None:
                     perturb = 1 + random.uniform(-0.05, 0.05)
                     ind["value_num"] = round(ind["value_num"] * perturb, 4)
                 ind["timestamp"] = date
-                ind["confidence"] = "low"  # 历史模拟数据
+                ind["source"] = "seed"        # 关键：标 seed
+                ind["confidence"] = "low"
+                ind["is_manual"] = False
                 ind["notes"] = (ind.get("notes") or "") + " [seeded]"
                 db.save_indicator(ind)
                 inserted += 1
-        # 跑一次评分写历史 scores
-        _, snaps = build_snapshots(db, cfg["commodities"])
+        # 历史评分：snapshot 从 db 拉，但因为 include_seed=True 才能读到 seed
+        common = db.get_latest_indicators(commodity="common", include_seed=True,
+                                          as_of_date=date)
+        market = db.get_latest_indicators(commodity="market", include_seed=True,
+                                          as_of_date=date)
+        common_snap = indicators_to_snapshot(common + market)
+        snaps: dict[str, dict] = {}
+        for c in cfg["commodities"]:
+            own = db.get_latest_indicators(commodity=c, include_seed=True,
+                                            as_of_date=date)
+            snap = indicators_to_snapshot(own)
+            for k, v in common_snap.items():
+                snap.setdefault(k, v)
+            snaps[c] = snap
         results = evaluate_all(snaps, db=db, score_date=date, config=cfg)
         persist_scores(results, db)
-    logger.info("seeded %d indicator rows across %d days", inserted, days)
-    print(f"Seeded {days} days history (~{inserted} indicator rows).")
+    logger.info("seeded %d indicator rows + %d days of scores",
+                inserted, days)
+    print(f"Seeded {days} days history (~{inserted} indicator rows, "
+          f"source='seed' — not used for latest snapshot).")
     return 0
 
 

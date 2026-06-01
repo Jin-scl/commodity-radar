@@ -41,7 +41,7 @@ def fetch_news(db: Database) -> list[dict]:
 
     new_events = 0
 
-    # 1) 先注入 manual_events（每次都会幂等检查：相同 message+timestamp 跳过）
+    # 1) 先注入 manual_events（幂等：相同 message 在 30 天内不重复写）
     manual = load_manual_inputs()
     for ev in manual.get("manual_events", []) or []:
         msg = ev.get("message", "")
@@ -51,12 +51,12 @@ def fetch_news(db: Database) -> list[dict]:
         kw_hit = _matches_keyword(msg, keywords)
         if kw_hit:
             severity = "critical"
-        # 简单查重：最近 7 天同 message 不重复
-        recent = db.get_recent_events(hours=24 * 7, commodity=commodity)
+        # 简单查重：最近 30 天同 message 不重复
+        recent = db.get_recent_events(hours=24 * 30, commodity=commodity)
         if any(e["message"] == msg for e in recent):
             continue
         db.save_event(commodity, ev.get("type", "manual"), msg, severity,
-                      source="manual_inputs.yaml")
+                      source="manual_inputs.yaml", timestamp=ts)
         new_events += 1
 
     # 2) RSS 抓取

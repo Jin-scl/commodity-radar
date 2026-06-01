@@ -7,14 +7,35 @@ from pathlib import Path
 from typing import Any, Iterable
 
 import yaml
+from dotenv import load_dotenv
+
+# 在模块加载时就读取 .env，让任何 load_config 都能拿到环境变量
+load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env",
+            override=False)
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 
 
 def load_config(config_path: str | Path | None = None) -> dict:
+    """读取 config.yaml；少数字段支持环境变量覆盖（用于本地 .env）。
+
+    支持的 env：
+      OBSIDIAN_ENABLED=true|false
+      OBSIDIAN_VAULT_PATH=/path/to/vault
+      OBSIDIAN_SUBFOLDER=commodity_radar
+    """
     path = Path(config_path) if config_path else PROJECT_ROOT / "config.yaml"
     with path.open("r", encoding="utf-8") as f:
         cfg = yaml.safe_load(f) or {}
+
+    obs = cfg.setdefault("obsidian", {})
+    env_enabled = os.environ.get("OBSIDIAN_ENABLED")
+    if env_enabled is not None:
+        obs["enabled"] = env_enabled.lower() in ("true", "1", "yes", "on")
+    if os.environ.get("OBSIDIAN_VAULT_PATH"):
+        obs["vault_path"] = os.environ["OBSIDIAN_VAULT_PATH"]
+    if os.environ.get("OBSIDIAN_SUBFOLDER"):
+        obs["subfolder"] = os.environ["OBSIDIAN_SUBFOLDER"]
     return cfg
 
 

@@ -54,6 +54,17 @@ def evaluate_alerts(scores: dict[str, dict], db: Database,
                 "reason": f"score_change_7d_ge_{d7}",
                 "message": f"{commodity} 7 日累计上升 +{c7} (-> {score})",
             })
+        # 等级穿越预警（regime alert）：比单纯阈值更稳定
+        regime = r.get("regime_change")
+        if regime:
+            sev = "warn" if regime.get("direction") == "up" else "info"
+            alerts.append({
+                "commodity": commodity, "severity": sev,
+                "reason": "regime_change",
+                "message": (f"{commodity} 等级穿越 "
+                            f"{regime['from']} → {regime['to']} "
+                            f"({'↑' if regime.get('direction') == 'up' else '↓'} -> {score})"),
+            })
 
     # 关键新闻/政策（events 表中 severity=critical）
     for ev in db.get_recent_events(hours=24):

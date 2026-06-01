@@ -27,20 +27,26 @@ def _partition_alerts_by_commodity(
     return out
 
 
-def build_snapshots(db: Database, commodities: list[str]) -> tuple[
+def build_snapshots(db: Database, commodities: list[str],
+                    as_of_date: Optional[str] = None) -> tuple[
         dict[str, list[dict]], dict[str, dict]]:
-    """对每个 commodity：取最新 indicators + common/market 公共指标。"""
+    """对每个 commodity：取最新 indicators + common/market 公共指标。
+
+    as_of_date: 只看 timestamp <= 该日期；为 None 时取当前最新。
+    seed 数据始终排除（保证不污染最新快照）。
+    """
     inds_by_c: dict[str, list[dict]] = {}
     snaps_by_c: dict[str, dict] = {}
-    common_inds = db.get_latest_indicators(commodity="common")
-    market_inds = db.get_latest_indicators(commodity="market")
+    common_inds = db.get_latest_indicators(commodity="common",
+                                           as_of_date=as_of_date)
+    market_inds = db.get_latest_indicators(commodity="market",
+                                           as_of_date=as_of_date)
     common_snap = indicators_to_snapshot(common_inds + market_inds)
     for c in commodities:
-        own = db.get_latest_indicators(commodity=c)
+        own = db.get_latest_indicators(commodity=c, as_of_date=as_of_date)
         all_inds = own + common_inds + market_inds
         inds_by_c[c] = all_inds
         snap = indicators_to_snapshot(own)
-        # 合并公共字段（不覆盖品种自己的）
         for k, v in common_snap.items():
             snap.setdefault(k, v)
         snaps_by_c[c] = snap
@@ -63,8 +69,10 @@ def generate(score_date: Optional[str] = None,
     score_date = score_date or today_str()
     commodities = cfg["commodities"]
 
-    inds_by_c, snaps_by_c = build_snapshots(db, commodities)
-    logger.info("Loaded snapshots for: %s", ", ".join(commodities))
+    inds_by_c, snaps_by_c = build_snapshots(db, commodities,
+                                            as_of_date=score_date)
+    logger.info("Loaded snapshots for: %s (as_of=%s)",
+                ", ".join(commodities), score_date)
 
     if precomputed_results is not None:
         results = precomputed_results

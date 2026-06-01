@@ -242,15 +242,30 @@ commodity_radar/
 
 ## 数据源说明
 
-| 数据源 | 实装情况 |
-|---|---|
-| NOAA CPC ENSO | ✅ 真实抓取（Niño 3.4 周度 + ONI 月度）|
-| yfinance | ✅ Brent / 豆油 |
-| MPOB（马来棕油月报） | ⚠️ manual（v2 可加 HTML 解析）|
-| ANRPC（橡胶产量） | ⚠️ manual（付费数据） |
-| ISMA（印度糖业） | ⚠️ manual |
-| USDA RSS 政策报告 | ✅ 关键词匹配 → events 表 |
-| 中国轮胎开工率 / 青岛库存 | ⚠️ manual（v2 可加 akshare） |
+> 🔵 = 真实自动抓取  ⚪ = 仍依赖 manual_inputs.yaml
+
+| 数据源 | 实装 | 备注 |
+|---|---|---|
+| NOAA CPC Niño 3.4 (周度 SSTA) | 🔵 | wksst9120.for 文本解析；正则按列位置取 Niño34 SSTA |
+| NOAA CPC ONI (月度) | 🔵 | NOAA 接口 SSL 不稳时自动 fallback manual |
+| yfinance Brent (BZ=F) | 🔵 | 含连续上涨天数派生 |
+| yfinance 豆油 (ZL=F) | 🔵 | |
+| 棕榈油 / 橡胶期货 | ⚪ | yfinance 覆盖不稳；manual 兜底 |
+| MPOB（马来棕油月报） | ⚪ | v2 可加 HTML 解析 |
+| ANRPC（天然橡胶产量） | ⚪ | 付费数据；只能 manual |
+| ISMA（印度糖业） | ⚪ | |
+| USDA RSS 政策报告 | 🔵 | feedparser + 关键词命中写 events 表 |
+| 中国轮胎开工率 / 青岛库存 | ⚪ | v2 可接 akshare |
+| 菜油 / 葵油 / 丁二烯 / 合成胶 | ⚪ | market fetcher 会从 yfinance 已抓字段之外，自动从 manual_inputs.yaml::market **补齐** |
+
+数据置信度（high / medium / low）会**衰减规则贡献**：
+
+- high (真实抓取) → 100% 计分
+- medium (manual) → 80%
+- low (历史 seed / 过期) → 40%
+
+所以同样触发"印度产量下调 +15"，high 数据贡献 +15，manual 贡献 +12，过期数据只贡献 +6。
+报告总览表里有"置信度"列，显示该品种当日数据整体置信度（0-100）。
 
 国内 VPS 注意：yfinance 可能需要代理。`config.yaml` 里可关闭单个 fetcher：
 

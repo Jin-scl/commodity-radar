@@ -27,6 +27,7 @@ tags:
 {%- for c in commodities %}
 {{ c.commodity }}_score: {{ c.final_score }}
 {{ c.commodity }}_level: {{ c.risk_level }}
+{{ c.commodity }}_confidence: {{ c.confidence_score or 0 }}
 {{ c.commodity }}_change_1d: {{ c.score_change_1d if c.score_change_1d is not none else 0 }}
 {{ c.commodity }}_change_7d: {{ c.score_change_7d if c.score_change_7d is not none else 0 }}
 {%- endfor %}
@@ -44,23 +45,43 @@ REPORT_TEMPLATE = """# Commodity Radar Daily Report - {{ date }}
 
 ## 总览
 
-| 品种 | 风险分 | 等级 | 1日变化 | 7日变化 | 结论 |
-|---|---:|---|---:|---:|---|
+| 品种 | 风险分 | 等级 | 置信度 | 1日变化 | 7日变化 | 结论 |
+|---|---:|---|---:|---:|---:|---|
 {% for c in commodities -%}
-| {{ labels[c.commodity] }} | {{ c.final_score }} | {{ c.risk_level_label }} | {{ fmt_change(c.score_change_1d) }} | {{ fmt_change(c.score_change_7d) }} | {{ c.conclusion }} |
+| {{ labels[c.commodity] }} | {{ c.final_score }} | {{ c.risk_level_label }} | {{ c.confidence_score or '—' }} | {{ fmt_change(c.score_change_1d) }} | {{ fmt_change(c.score_change_7d) }} | {{ c.conclusion }} |
 {% endfor %}
 
 {% for c in commodities %}
 ## {{ labels[c.commodity] }}
 
 ### 今日结论
-**{{ c.risk_level_label }}（{{ c.final_score }} 分）** — {{ c.conclusion }}
+**{{ c.risk_level_label }}（{{ c.final_score }} 分 ｜ 置信度 {{ c.confidence_score or '—' }}/100）** — {{ c.conclusion }}
+
+{% if c.regime_change -%}
+> ⚠️ **等级穿越**：{{ c.regime_change.from }} → {{ c.regime_change.to }}
+{% endif %}
 
 - 触发规则数：**{{ c.triggered_count }}**
-- 分类贡献：{% for k, v in c.category_breakdown.items() %}`{{ k }}` {{ "+" if v > 0 else "" }}{{ v }}{% if not loop.last %} · {% endif %}{% endfor %}
+- 分类贡献（已封顶 ±25 / category）：{% for k, v in c.category_breakdown.items() %}`{{ k }}` {{ "+" if v > 0 else "" }}{{ v }}{% if not loop.last %} · {% endif %}{% endfor %}
 {% if c.neutral_flags %}
 - 中性标记：{% for f in c.neutral_flags %}{{ f.flag }}{% if not loop.last %} / {% endif %}{% endfor %}
 {% endif %}
+
+{% if c.factor_diff and (c.factor_diff.added or c.factor_diff.removed) -%}
+### 较昨日变化来源
+{% if c.factor_diff.added -%}
+**新增触发** ({{ c.factor_diff.added | length }} 条)：
+{% for rid in c.factor_diff.added -%}
+- `{{ rid }}`
+{% endfor %}
+{%- endif %}
+{% if c.factor_diff.removed -%}
+**消失触发** ({{ c.factor_diff.removed | length }} 条)：
+{% for rid in c.factor_diff.removed -%}
+- `{{ rid }}`
+{% endfor %}
+{%- endif %}
+{%- endif %}
 
 ### 主要利多
 {% if c.bullish_factors -%}

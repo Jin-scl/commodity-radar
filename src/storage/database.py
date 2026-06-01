@@ -43,9 +43,11 @@ CREATE TABLE IF NOT EXISTS scores (
     risk_level_label  TEXT NOT NULL,
     score_change_1d   INTEGER,
     score_change_7d   INTEGER,
+    confidence_score  INTEGER,                              -- 0-100，数据置信度均值
     bullish_json      TEXT NOT NULL DEFAULT '[]',
     bearish_json      TEXT NOT NULL DEFAULT '[]',
     triggered_alerts_json TEXT NOT NULL DEFAULT '[]',
+    triggered_rules_json  TEXT NOT NULL DEFAULT '[]',       -- 触发规则 id 列表（用于变化来源 diff）
     payload_json      TEXT,
     computed_at       TEXT NOT NULL,
     UNIQUE(commodity, score_date) ON CONFLICT REPLACE
@@ -103,6 +105,16 @@ class Database:
     def _init_schema(self) -> None:
         with self._conn() as c:
             c.executescript(SCHEMA_SQL)
+            # 幂等迁移：旧 DB 缺新列时补上
+            self._migrate(c)
+
+    def _migrate(self, c) -> None:
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(scores)").fetchall()}
+        if "confidence_score" not in cols:
+            c.execute("ALTER TABLE scores ADD COLUMN confidence_score INTEGER")
+        if "triggered_rules_json" not in cols:
+            c.execute("ALTER TABLE scores ADD COLUMN "
+                      "triggered_rules_json TEXT NOT NULL DEFAULT '[]'")
 
     # ---------- indicators ----------
     def save_indicator(self, ind: dict) -> None:
@@ -132,13 +144,33 @@ class Database:
         return n
 
     def get_latest_indicators(self, commodity: str | None = None,
-                              names: Iterable[str] | None = None) -> list[dict]:
-        """每个 (commodity, name) 取 timestamp 最大那条。"""
-        sql = """
+                              names: Iterable[str] | None = None,
+                              as_of_date: str | None = None,
+                              include_seed: bool = False) -> list[dict]:
+        """每个 (commodity, name) 取 timestamp 最大那条。
+
+        as_of_date: "YYYY-MM-DD" — 只看 timestamp <= 该日期；用于 --date 回放
+        include_seed: 是否包含 source='seed' 的记录（默认排除，避免污染最新快照）
+
+        同 timestamp 下用 id DESC 兜底（保证去重稳定）。
+        """
+        # 子查询：每个 (commodity, name) 在过滤条件下的最新 (timestamp, id)
+        sub_filters = []
+        sub_params: list[Any] = []
+        if not include_seed:
+            sub_filters.append("source != 'seed'")
+        if as_of_date:
+            # 取 timestamp 的日期前缀比较，覆盖 "YYYY-MM-DD" 和 "YYYY-MM-DDT..." 两种
+            sub_filters.append("substr(timestamp, 1, 10) <= ?")
+            sub_params.append(as_of_date)
+        where = ("WHERE " + " AND ".join(sub_filters)) if sub_filters else ""
+
+        sql = f"""
         SELECT i.* FROM indicators i
         JOIN (
             SELECT commodity, name, MAX(timestamp) AS mts
             FROM indicators
+            {where}
             GROUP BY commodity, name
         ) latest
         ON i.commodity = latest.commodity
@@ -146,7 +178,9 @@ class Database:
         AND i.timestamp = latest.mts
         WHERE 1=1
         """
-        params: list[Any] = []
+        params: list[Any] = list(sub_params)
+        if not include_seed:
+            sql += " AND i.source != 'seed'"
         if commodity:
             sql += " AND i.commodity = ?"
             params.append(commodity)
@@ -155,9 +189,21 @@ class Database:
             placeholders = ",".join("?" for _ in names_list)
             sql += f" AND i.name IN ({placeholders})"
             params.extend(names_list)
+        # 同 (commodity, name, timestamp) 下保留 id 最大的（最近写入）
+        sql += " ORDER BY i.id DESC"
+
         with self._conn() as c:
             rows = c.execute(sql, params).fetchall()
-        return [dict(r) for r in rows]
+        # 主查询会 JOIN 出多行（同一 timestamp 多次写入时），用 dict 去重
+        seen = set()
+        out = []
+        for r in rows:
+            key = (r["commodity"], r["name"])
+            if key in seen:
+                continue
+            seen.add(key)
+            out.append(dict(r))
+        return out
 
     def get_indicator_history(self, commodity: str, name: str,
                               days: int = 30) -> list[dict]:
@@ -178,12 +224,15 @@ class Database:
     def save_score(self, score: dict) -> None:
         fields = ["commodity", "score_date", "raw_score", "final_score",
                   "risk_level", "risk_level_label", "score_change_1d",
-                  "score_change_7d", "bullish_json", "bearish_json",
-                  "triggered_alerts_json", "payload_json", "computed_at"]
+                  "score_change_7d", "confidence_score",
+                  "bullish_json", "bearish_json",
+                  "triggered_alerts_json", "triggered_rules_json",
+                  "payload_json", "computed_at"]
         row = {f: score.get(f) for f in fields}
         if not row["computed_at"]:
             row["computed_at"] = now_iso()
-        for k in ("bullish_json", "bearish_json", "triggered_alerts_json"):
+        for k in ("bullish_json", "bearish_json",
+                  "triggered_alerts_json", "triggered_rules_json"):
             if isinstance(row.get(k), (list, dict)):
                 row[k] = json.dumps(row[k], ensure_ascii=False)
             elif row.get(k) is None:
@@ -233,13 +282,17 @@ class Database:
 
     # ---------- events ----------
     def save_event(self, commodity: str, event_type: str, message: str,
-                   severity: str = "info", source: str | None = None) -> None:
+                   severity: str = "info", source: str | None = None,
+                   timestamp: str | None = None) -> None:
+        """timestamp 优先用调用方传入的（事件真实发生时间），
+        缺省时用 now_iso()（系统记录时间）。"""
+        ts = timestamp or now_iso()
         with self._conn() as c:
             c.execute(
                 """INSERT INTO events (timestamp, commodity, event_type, message,
                                        severity, source)
                    VALUES (?, ?, ?, ?, ?, ?)""",
-                (now_iso(), commodity, event_type, message, severity, source),
+                (ts, commodity, event_type, message, severity, source),
             )
 
     def get_recent_events(self, hours: int = 24,
