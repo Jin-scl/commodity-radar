@@ -297,16 +297,36 @@ class Database:
 
     def get_recent_events(self, hours: int = 24,
                           commodity: str | None = None) -> list[dict]:
-        since = (datetime.now(timezone.utc).astimezone()
-                 - timedelta(hours=hours)).isoformat()
-        sql = "SELECT * FROM events WHERE timestamp >= ?"
-        params: list[Any] = [since]
+        """最近 N 小时内的 events。
+
+        兼容两种 timestamp 格式：
+        - date-only "YYYY-MM-DD"（manual event，按当天 00:00 算）
+        - ISO datetime "YYYY-MM-DDTHH:MM:SS±HH:MM"（系统写入）
+        用 substr(timestamp, 1, 10) 做日期级前置过滤，再交由 Python 做精细判断。
+        """
+        since = datetime.now(timezone.utc).astimezone() - timedelta(hours=hours)
+        since_date = since.strftime("%Y-%m-%d")
+        since_iso = since.isoformat()
+        sql = "SELECT * FROM events WHERE substr(timestamp, 1, 10) >= ?"
+        params: list[Any] = [since_date]
         if commodity:
             sql += " AND commodity = ?"
             params.append(commodity)
         sql += " ORDER BY timestamp DESC"
         with self._conn() as c:
-            return [dict(r) for r in c.execute(sql, params).fetchall()]
+            candidates = [dict(r) for r in c.execute(sql, params).fetchall()]
+        # 二次精筛：date-only 的当作 00:00:00 算
+        out = []
+        for ev in candidates:
+            ts = ev.get("timestamp", "")
+            if len(ts) == 10:
+                # date-only：如果日期 >= since_date 就纳入（按 00:00 算）
+                if ts >= since_date:
+                    out.append(ev)
+            else:
+                if ts >= since_iso:
+                    out.append(ev)
+        return out
 
     def get_events_between(self, start: str, end: str,
                            commodity: str | None = None) -> list[dict]:

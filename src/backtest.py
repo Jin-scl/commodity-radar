@@ -244,6 +244,13 @@ def analyze_and_render(results: dict) -> str:
     lines = [
         f"# Backtest Report — {results['commodity']}",
         "",
+        "> ⚠️ **机制压力测试，不代表预测能力**",
+        "> 本回测基于当前 manual_inputs.yaml baseline 加高斯噪声生成 snapshot，",
+        "> 只用于检验**评分体系本身的稳定性**（哪些规则永远不触发、哪些过频触发）。",
+        "> **不**是基于真实历史数据的胜率/准确率测试，",
+        "> 阈值校准建议**不应**直接当生产调参依据，而应在积累 30+ 天真实数据后",
+        "> 用历史回测重新评估。",
+        "",
         f"**Iterations**: {n} ｜ **Noise σ**: {results['noise_std']} "
         f"｜ **Seed**: {results['seed']}",
         "",

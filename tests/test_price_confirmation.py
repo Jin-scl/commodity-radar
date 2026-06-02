@@ -37,9 +37,25 @@ def test_sugar_diverging_when_prices_drop():
     assert pc["weighted_pct"] == -100
 
 
-def test_sugar_neutral_when_fundamental_low():
-    """基本面 < 31 (绿色)，无需价格确认。"""
-    snap = {"ice_raw_sugar_change_pct_5d": _e(2.0)}
+def test_sugar_price_leading_when_fundamental_low_but_price_strong():
+    """v3：基本面绿但价格强烈偏多 → price_leading（不再误标 neutral）。"""
+    snap = {
+        "ice_raw_sugar_change_pct_5d": _e(2.0),
+        "london_white_sugar_change_pct_5d": _e(1.5),
+        "usd_brl_change_pct_5d": _e(-1.0),
+    }
+    pc = _compute_price_confirmation("sugar", final_score=20, snapshot=snap)
+    assert pc["status"] == "price_leading"
+    assert "价格领先偏多" in pc["message"]
+
+
+def test_sugar_neutral_when_all_flat():
+    """基本面绿 + 价格中性 → neutral。"""
+    snap = {
+        "ice_raw_sugar_change_pct_5d": _e(0.1),
+        "london_white_sugar_change_pct_5d": _e(0.0),
+        "usd_brl_change_pct_5d": _e(0.0),
+    }
     pc = _compute_price_confirmation("sugar", final_score=20, snapshot=snap)
     assert pc["status"] == "neutral"
 
@@ -116,14 +132,16 @@ def test_evaluate_commodity_includes_price_confirmation():
     assert "价格" in r["conclusion"]
 
 
-def test_evaluate_commodity_no_confirmation_when_neutral():
-    """final_score < 31 时，conclusion 不强行加价格确认文字。"""
+def test_evaluate_commodity_price_leading_when_fundamental_zero():
+    """v3：score=0 + 价格强偏多 → price_leading 仍出现在 conclusion。"""
     from src.indicators.scoring import evaluate_commodity
     snap = {
         "ice_raw_sugar_change_pct_5d": _e(2.0),
+        "london_white_sugar_change_pct_5d": _e(1.5),
+        "usd_brl_change_pct_5d": _e(-1.0),
     }
     r = evaluate_commodity("sugar", snap, db=None, config=CFG)
-    # 0 触发 → score=0，conclusion 仅"中性"
     assert r["final_score"] == 0
-    assert r["price_confirmation"]["status"] == "neutral"
-    assert "价格" not in r["conclusion"]
+    assert r["price_confirmation"]["status"] == "price_leading"
+    # conclusion 应包含价格先行文字
+    assert "价格领先" in r["conclusion"]

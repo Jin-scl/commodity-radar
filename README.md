@@ -290,14 +290,29 @@ commodity_radar/
 
 加权方向得分 `pct = Σ(weight × {+1,-1,0}) / Σ weight`：
 
+**基本面有方向时（final_score ≥ 31）**：
+
 | 状态 | 条件 | 文字 |
 |---|---|---|
 | `confirmed` | pct ≥ 0.5 | 价格已确认基本面方向 |
 | `partial` | 0 < pct < 0.5 | 价格部分确认基本面 |
 | `weak` | -0.5 < pct ≤ 0 | 价格确认偏弱，需要继续验证 |
 | `diverging` | pct ≤ -0.5 | 价格与基本面背离，持续性存疑 |
-| `neutral` | final_score < 31 | 基本面中性，价格确认非必要 |
+
+**基本面中性时（final_score < 31）**：
+
+| 状态 | 条件 | 文字 |
+|---|---|---|
+| `price_leading` | \|pct\| ≥ 0.5 | 价格领先偏多/偏空，但基本面尚未确认 |
+| `price_watch` | 0.2 ≤ \|pct\| < 0.5 | 价格出现微弱倾向，建议持续观察 |
+| `neutral` | \|pct\| < 0.2 | 基本面与价格均中性 |
 | `no_data` | 没有任何价格信号 | 缺少价格数据，确认状态未知 |
+
+**为什么区分 confirmed / price_leading**：风险雷达不只是"基本面确认"，也要捕获"价格先行而基本面尚未发生"的早期信号。
+之前版本会把"绿色 + 价格全偏多"误标为 neutral，完全掩盖了市场已在 price-in 的预期。
+
+**置信度加权**：v3 的 weighted_pct 是 `Σ(weight × confidence_mult × side) / Σ(weight × confidence_mult)`。
+所以全 manual medium 信号的 confirmed 强度低于全 yfinance high。报告里有 **价格确认置信度** 字段单独展示。
 
 报告里有专门的 **"价格确认"** 章节，列出每个信号的值/方向/权重/置信度。frontmatter 也含 `{commodity}_price_confirmation` 字段，可用 Dataview 筛选。
 

@@ -125,7 +125,9 @@ scoring:
       substitute_oil: 15
       weather: 15
     rubber:
-      china_demand: 30
+      # 回测显示橡胶 china_demand 多条规则共振（tire_op + import + qingdao_stock
+      # 本质同一个"中国需求改善"信号）；cap 从 30 降到 20 抑制重复加分
+      china_demand: 20
       inventory: 25
       asean_supply: 25
       oil_synth: 20

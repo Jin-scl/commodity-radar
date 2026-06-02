@@ -45,10 +45,12 @@ def _conclude(score: int, change_1d: Optional[int],
             parts.append("风险下降")
     if change_7d is not None and change_7d >= 20:
         parts.append("近 7 日累计风险上升较快，需要继续验证")
-    # 价格确认（只在基本面有方向时融入）
-    if price_confirmation and score >= 31:
+    # 价格确认融入：基本面有方向时（>=31）总是融入；
+    # 基本面低分但价格领先时也融入，以保留"价格先行"信号
+    if price_confirmation:
+        status = price_confirmation.get("status")
         msg = price_confirmation.get("message")
-        if msg:
+        if msg and (score >= 31 or status in ("price_leading", "price_watch")):
             parts.append(msg)
     return "；".join(parts) or "中性，需要继续验证"
 
@@ -94,74 +96,100 @@ PRICE_SIGNALS: dict[str, list[dict]] = {
 
 
 def _compute_price_confirmation(commodity: str, final_score: int,
-                                snapshot: dict) -> dict:
+                                snapshot: dict,
+                                cfg: Optional[dict] = None) -> dict:
     """根据 final_score 方向与价格信号判定确认状态。
 
-    返回 {status, message, weighted_pct, signals}
-      status: confirmed / partial / weak / diverging / no_data / neutral
-      weighted_pct: -100 ~ +100，价格方向加权得分
-      signals: 每条价格信号 {name, label, value, side, weight, confidence}
+    v3 升级：
+    - 信号权重 × 数据置信度系数（manual medium 不等同 yfinance high）
+    - 基本面低分时不再直接 neutral：若价格信号已强烈偏多/偏空 → price_leading
+    - 输出 price_confirmation_confidence
+
+    返回 {status, message, weighted_pct, signals, confidence_score}
+      status: confirmed / partial / weak / diverging / price_leading /
+              price_watch / no_data / neutral
     """
+    cfg = cfg or load_config()
+    mult_map = _get_confidence_mult(cfg)
     sig_cfg = PRICE_SIGNALS.get(commodity, [])
     signals: list[dict] = []
-    for cfg in sig_cfg:
-        entry = snapshot.get(cfg["name"])
+    conf_scores: list[int] = []
+    for s_cfg in sig_cfg:
+        entry = snapshot.get(s_cfg["name"])
         if not entry or entry.get("value") in (None, ""):
             continue
         try:
             val = float(entry["value"])
         except (TypeError, ValueError):
             continue
-        eff_val = -val if cfg.get("invert") else val
-        threshold = float(cfg.get("threshold", 0.5))
+        eff_val = -val if s_cfg.get("invert") else val
+        threshold = float(s_cfg.get("threshold", 0.5))
         if eff_val > threshold:
             side = "up"
         elif eff_val < -threshold:
             side = "down"
         else:
             side = "flat"
+        conf = entry.get("confidence") or "medium"
         signals.append({
-            "name": cfg["name"],
-            "label": cfg["label"],
+            "name": s_cfg["name"],
+            "label": s_cfg["label"],
             "value": val,
             "side": side,
-            "weight": float(cfg.get("weight", 1.0)),
-            "confidence": entry.get("confidence"),
+            "weight": float(s_cfg.get("weight", 1.0)),
+            "confidence": conf,
+            "confidence_mult": mult_map.get(conf, 0.5),
         })
+        conf_scores.append(_confidence_int(conf))
 
     if not signals:
         return {"status": "no_data",
                 "message": "缺少价格数据，确认状态未知",
-                "weighted_pct": None, "signals": []}
+                "weighted_pct": None, "signals": [],
+                "confidence_score": None}
 
-    # 基本面中性时，价格确认非必要
-    if final_score < 31:
-        return {"status": "neutral",
-                "message": "基本面中性，价格确认非必要",
-                "weighted_pct": None, "signals": signals}
-
+    # 计算加权方向得分（信号权重 × 置信度系数）
     weighted = 0.0
     total = 0.0
     for s in signals:
-        w = s["weight"]
+        w_eff = s["weight"] * s["confidence_mult"]
         if s["side"] == "up":
-            weighted += w
+            weighted += w_eff
         elif s["side"] == "down":
-            weighted -= w
-        total += w
+            weighted -= w_eff
+        total += w_eff
     pct = (weighted / total) if total else 0.0
+    pct_int = int(round(pct * 100))
+    pc_conf = int(sum(conf_scores) / len(conf_scores))
 
-    if pct >= 0.5:
-        status, msg = "confirmed", "价格已确认基本面方向"
-    elif pct > 0:
-        status, msg = "partial", "价格部分确认基本面"
-    elif pct > -0.5:
-        status, msg = "weak", "价格确认偏弱，需要继续验证"
+    if final_score < 31:
+        # v3：基本面中性时，仍尊重价格信号
+        if pct >= 0.5:
+            status = "price_leading"
+            msg = "价格领先偏多，但基本面尚未确认"
+        elif pct <= -0.5:
+            status = "price_leading"
+            msg = "价格领先偏空，但基本面尚未确认"
+        elif abs(pct) >= 0.2:
+            status = "price_watch"
+            msg = "价格出现微弱倾向，建议持续观察"
+        else:
+            status = "neutral"
+            msg = "基本面与价格均中性"
     else:
-        status, msg = "diverging", "价格与基本面背离，持续性存疑"
+        # 基本面有方向，看价格是否确认
+        if pct >= 0.5:
+            status, msg = "confirmed", "价格已确认基本面方向"
+        elif pct > 0:
+            status, msg = "partial", "价格部分确认基本面"
+        elif pct > -0.5:
+            status, msg = "weak", "价格确认偏弱，需要继续验证"
+        else:
+            status, msg = "diverging", "价格与基本面背离，持续性存疑"
+
     return {"status": status, "message": msg,
-            "weighted_pct": int(round(pct * 100)),
-            "signals": signals}
+            "weighted_pct": pct_int, "signals": signals,
+            "confidence_score": pc_conf}
 
 
 # 默认评分参数（可被 config.yaml::scoring 覆盖）
@@ -351,7 +379,7 @@ def evaluate_commodity(commodity: str, snapshot: dict,
 
     # 价格确认（独立维度，不参与 final_score；融入 conclusion 文字）
     price_confirmation = _compute_price_confirmation(commodity, final_score,
-                                                      snapshot)
+                                                      snapshot, cfg=cfg)
     conclusion = _conclude(final_score, change_1d, change_7d,
                            price_confirmation=price_confirmation)
 
