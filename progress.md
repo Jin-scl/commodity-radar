@@ -45,3 +45,24 @@
 | E | 小 | generate signature | 改 docstring 反映真实返回（本地路径作为主路径，Obsidian 由 write_report 内部处理）|
 
 回归测试：80 个单元测试全过；run-all 端到端通过；Obsidian 双写正确。
+
+---
+
+## Project sealed for operation (2026-06-02)
+
+v1 开发阶段结束。从此进入"日常运营 + 真实数据积累"阶段。
+
+**最终状态**：
+- 19 个 Phase 全部完成
+- 149/149 单元测试通过
+- 评分体系：置信度衰减 / category 封顶 / 等级穿越预警 / 因子 diff / 价格确认 / 预期差 / 季节性基准 / 9 条规则基于回测调优
+- 总代码 ~4900 行（src + tests）
+- 7 个 commit pushed to https://github.com/Jin-scl/commodity-radar
+
+**等 30 天真实数据后再做**：
+- 真实数据驱动的阈值校准（v2）
+- per-commodity 阈值配置化（v2）
+- akshare 国内数据源接入（按需）
+- MPOB 月报真实抓取（按需）
+
+之后任何代码修改都基于"真实数据反馈"，不再基于纯设计直觉。
