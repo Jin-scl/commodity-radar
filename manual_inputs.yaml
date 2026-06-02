@@ -130,6 +130,10 @@ sugar:
     unit: "million MT"
     timestamp: "2026-05-15"
     notes: "ISMA/USDA 最新预估"
+  india_sugar_production_mt_expected:
+    value: 32.0
+    unit: "million MT"
+    notes: "市场预期（彭博/路透调研均值）；用于预期差规则"
   india_sugar_production_change_mt:
     value: -0.4
     unit: "million MT"
@@ -150,6 +154,10 @@ sugar:
     notes: "中南部累计压榨"
   brazil_cs_crush_yoy_pct: {value: -2.0, unit: "%"}
   brazil_sugar_production_mt: {value: 39.0, unit: "million MT"}
+  brazil_sugar_production_mt_expected:
+    value: 40.0
+    unit: "million MT"
+    notes: "市场预期"
   brazil_sugar_mix_pct:
     value: 48.5
     unit: "%"
@@ -168,6 +176,10 @@ sugar:
     value: "none"
     notes: "白叶病/病害近期新闻摘要"
   thailand_sugar_production_mt: {value: 9.2, unit: "million MT"}
+  thailand_sugar_production_mt_expected:
+    value: 9.5
+    unit: "million MT"
+    notes: "市场预期；预期差规则使用"
   thailand_sugar_production_change_mt: {value: -0.2, unit: "million MT"}
   thailand_sugar_export_mt: {value: 7.0, unit: "million MT"}
 
@@ -235,6 +247,10 @@ palm:
     unit: "million MT"
     timestamp: "2026-04-30"
     notes: "最新月产量"
+  mpob_cpo_production_mt_expected:
+    value: 1.70
+    unit: "million MT"
+    notes: "市场预期（彭博调研均值）；预期差规则用"
   mpob_cpo_production_5y_avg_mt:
     value: 1.70
     unit: "million MT"
@@ -244,8 +260,24 @@ palm:
     unit: "million MT"
     timestamp: "2026-04-30"
     notes: "月末库存；<180 +8, <160 +15, >220 -10"
+  mpob_end_stock_mt_expected:
+    value: 2.05
+    unit: "million MT"
+    notes: "市场预期；低于预期 5%+ → 利多，高于预期 5%+ → 利空"
+  mpob_end_stock_5y_avg_mt:
+    value: 1.85
+    unit: "million MT"
+    notes: "同月份过去 5 年均值；季节性基准"
   mpob_stock_mom_change_pct: {value: -3.0, unit: "%"}
   mpob_export_mt: {value: 1.30, unit: "million MT"}
+  mpob_export_mt_expected:
+    value: 1.25
+    unit: "million MT"
+    notes: "市场预期"
+  mpob_export_5y_avg_mt:
+    value: 1.20
+    unit: "million MT"
+    notes: "5 年同月均值；季节性"
   mpob_export_mom_change_pct: {value: 5.0, unit: "%"}
   mpob_import_mt: {value: 0.04, unit: "million MT"}
   mpob_ffb_price_myr: {value: 720.0, unit: "MYR/MT"}
@@ -260,11 +292,19 @@ palm:
 
   # ---- 需求 ----
   india_palm_import_mt: {value: 0.55, unit: "million MT (月)"}
+  india_palm_import_5y_avg_mt:
+    value: 0.60
+    unit: "million MT (月)"
+    notes: "同月 5 年均值；季节性"
   india_palm_import_mom_change_pct: {value: 2.0, unit: "%"}
   india_edible_oil_stock_mt: {value: 2.1, unit: "million MT"}
   india_import_profit_usd: {value: 25.0, unit: "USD/MT"}
 
   china_palm_import_mt: {value: 0.45, unit: "million MT (月)"}
+  china_palm_import_5y_avg_mt:
+    value: 0.42
+    unit: "million MT (月)"
+    notes: "同月 5 年均值；季节性"
   china_palm_import_mom_change_pct: {value: 8.0, unit: "%"}
   china_port_stock_mt: {value: 0.42, unit: "million MT"}
   china_soy_palm_spread_usd: {value: 35.0, unit: "USD/MT", notes: "豆-棕价差"}
@@ -324,8 +364,16 @@ rubber:
 
   # ---- 中国需求 ----
   china_semi_steel_tire_operating_rate_pct: {value: 72.0, unit: "%"}
+  china_semi_steel_tire_op_rate_5y_avg_pct:
+    value: 68.0
+    unit: "%"
+    notes: "同周 5 年均值；轮胎开工有强季节性"
   china_semi_steel_op_rate_change_pct: {value: 1.5, unit: "%", notes: "周度环比"}
   china_full_steel_tire_operating_rate_pct: {value: 58.0, unit: "%"}
+  china_full_steel_tire_op_rate_5y_avg_pct:
+    value: 55.0
+    unit: "%"
+    notes: "同周 5 年均值"
   china_full_steel_op_rate_change_pct: {value: 1.0, unit: "%"}
 
   china_tire_export_yoy_pct: {value: 6.0, unit: "%"}
@@ -337,6 +385,10 @@ rubber:
 
   # ---- 库存 ----
   qingdao_bonded_stock_kt: {value: 168.0, unit: "kt"}
+  qingdao_bonded_stock_5y_avg_kt:
+    value: 180.0
+    unit: "kt"
+    notes: "同月 5 年均值；季节性基准"
   qingdao_bonded_stock_change_pct: {value: -2.5, unit: "%"}
   qingdao_general_trade_stock_kt: {value: 320.0, unit: "kt"}
   shfe_ru_stock_kt: {value: 195.0, unit: "kt"}

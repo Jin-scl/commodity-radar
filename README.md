@@ -303,6 +303,44 @@ commodity_radar/
 
 ---
 
+## 预期差与季节性基准
+
+绝对阈值规则（如"印度产量下调 >100 万吨 +15"）容易在数据平稳时反复触发噪音。
+v2 加入两套**相对基准**规则，与绝对阈值并存（category cap 抑制重复加分）。
+
+### 预期差（vs 市场预期）
+
+为关键月报指标加 `_expected` 字段（彭博/路透/USDA 预测均值）：
+
+| 字段 | _expected 字段 | 触发阈值 |
+|---|---|---|
+| `mpob_end_stock_mt` | `mpob_end_stock_mt_expected` | ±5% |
+| `mpob_cpo_production_mt` | `mpob_cpo_production_mt_expected` | ±5% |
+| `mpob_export_mt` | `mpob_export_mt_expected` | ±5% |
+| `india_sugar_production_mt` | `india_sugar_production_mt_expected` | ±5% |
+| `thailand_sugar_production_mt` | `thailand_sugar_production_mt_expected` | ±5% |
+| `brazil_sugar_production_mt` | `brazil_sugar_production_mt_expected` | ±5% |
+
+规则措辞：`马来库存低于市场预期 5.0%` / `印度糖产量高于市场预期 6.2%`。
+
+### 季节性基准（vs 5 年同月/同周均值）
+
+为强季节性指标加 `_5y_avg_*` 字段：
+
+| 字段 | _5y_avg 字段 | 触发阈值 |
+|---|---|---|
+| `mpob_end_stock_mt` | `mpob_end_stock_5y_avg_mt` | ±10-15% |
+| `mpob_export_mt` | `mpob_export_5y_avg_mt` | ±10% |
+| `india_palm_import_mt + china_palm_import_mt` | 同名 5y avg | ±10% |
+| `qingdao_bonded_stock_kt` | `qingdao_bonded_stock_5y_avg_kt` | ±10-15% |
+| `china_semi/full_steel_tire_operating_rate_pct` | 同名 5y avg | ±3pp |
+
+规则措辞：`青岛库存 vs 5年同月 -16.7%（偏紧）` / `轮胎开工 vs 5年同期 -6.5pp（弱于季节性）`。
+
+**为什么并存而非替换**：v1 绝对阈值仍有价值（如"印度糖出口禁令 +15"是政策事件，不是连续变量）。预期差和季节性更适合 MPOB 库存这种连续变量。category cap 自动抑制同 category 的过度叠加。
+
+---
+
 ## 数据源说明
 
 > 🔵 = 真实自动抓取  ⚪ = 仍依赖 manual_inputs.yaml

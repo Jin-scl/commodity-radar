@@ -102,6 +102,29 @@ def _evidence(snap: dict, *keys: str) -> dict:
 
 
 # =====================================================================
+# 预期差通用 helper —— 用 vs 市场预期 取代纯绝对阈值
+# =====================================================================
+def _surprise_pct(snap: dict, actual_key: str, expected_key: str
+                  ) -> Optional[float]:
+    """返回 (actual - expected) / expected × 100；任一缺失 → None。"""
+    actual = _num(snap, actual_key)
+    expected = _num(snap, expected_key)
+    if actual is None or expected is None or expected == 0:
+        return None
+    return (actual - expected) / expected * 100.0
+
+
+def _seasonal_deviation_pct(snap: dict, actual_key: str, avg_key: str
+                            ) -> Optional[float]:
+    """vs 同月/同周 5 年均值的偏离百分比；任一缺失 → None。"""
+    actual = _num(snap, actual_key)
+    avg = _num(snap, avg_key)
+    if actual is None or avg is None or avg == 0:
+        return None
+    return (actual - avg) / avg * 100.0
+
+
+# =====================================================================
 # 共同 ENSO 规则
 # =====================================================================
 def rule_nino34_warm_high(snap):
@@ -295,6 +318,67 @@ def rule_sugar_china_gx_yn_event(snap):
     return None
 
 
+def rule_sugar_india_prod_vs_expected(snap):
+    """印度糖产量预期差：低于预期 5%+ = 利多，高于预期 5%+ = 利空。"""
+    surp = _surprise_pct(snap, "india_sugar_production_mt",
+                         "india_sugar_production_mt_expected")
+    if surp is None:
+        return None
+    if surp <= -5:
+        return RuleResult("sugar.india.prod_below_expected",
+                          f"印度糖产量低于市场预期 {abs(surp):.1f}%",
+                          "india", +12, "bullish",
+                          _evidence(snap, "india_sugar_production_mt",
+                                    "india_sugar_production_mt_expected"))
+    if surp >= 5:
+        return RuleResult("sugar.india.prod_above_expected",
+                          f"印度糖产量高于市场预期 {surp:.1f}%",
+                          "india", -8, "bearish",
+                          _evidence(snap, "india_sugar_production_mt",
+                                    "india_sugar_production_mt_expected"))
+    return None
+
+
+def rule_sugar_thai_prod_vs_expected(snap):
+    surp = _surprise_pct(snap, "thailand_sugar_production_mt",
+                         "thailand_sugar_production_mt_expected")
+    if surp is None:
+        return None
+    if surp <= -5:
+        return RuleResult("sugar.thai.prod_below_expected",
+                          f"泰国糖产量低于市场预期 {abs(surp):.1f}%",
+                          "thailand", +10, "bullish",
+                          _evidence(snap, "thailand_sugar_production_mt",
+                                    "thailand_sugar_production_mt_expected"))
+    if surp >= 5:
+        return RuleResult("sugar.thai.prod_above_expected",
+                          f"泰国糖产量高于市场预期 {surp:.1f}%",
+                          "thailand", -6, "bearish",
+                          _evidence(snap, "thailand_sugar_production_mt",
+                                    "thailand_sugar_production_mt_expected"))
+    return None
+
+
+def rule_sugar_brazil_prod_vs_expected(snap):
+    surp = _surprise_pct(snap, "brazil_sugar_production_mt",
+                         "brazil_sugar_production_mt_expected")
+    if surp is None:
+        return None
+    if surp <= -5:
+        return RuleResult("sugar.brazil.prod_below_expected",
+                          f"巴西糖产量低于市场预期 {abs(surp):.1f}%",
+                          "brazil", +10, "bullish",
+                          _evidence(snap, "brazil_sugar_production_mt",
+                                    "brazil_sugar_production_mt_expected"))
+    if surp >= 5:
+        return RuleResult("sugar.brazil.prod_above_expected",
+                          f"巴西糖产量高于市场预期 {surp:.1f}%",
+                          "brazil", -6, "bearish",
+                          _evidence(snap, "brazil_sugar_production_mt",
+                                    "brazil_sugar_production_mt_expected"))
+    return None
+
+
 SUGAR_RULES: list[Callable] = [
     rule_sugar_india_monsoon_weak,
     rule_sugar_maha_kar_dry,
@@ -307,6 +391,10 @@ SUGAR_RULES: list[Callable] = [
     rule_sugar_thai_production_downgrade,
     rule_sugar_eu_beet_area_down,
     rule_sugar_china_gx_yn_event,
+    # v2 预期差规则（与上面绝对阈值规则共存，category cap 抑制重复加分）
+    rule_sugar_india_prod_vs_expected,
+    rule_sugar_thai_prod_vs_expected,
+    rule_sugar_brazil_prod_vs_expected,
 ]
 
 
@@ -472,6 +560,142 @@ def rule_palm_mpob_stock_surge(snap):
     return None
 
 
+def rule_palm_mpob_stock_vs_expected(snap):
+    """马来库存预期差：低于预期 5%+ = 利多，高于预期 5%+ = 利空。
+    比绝对阈值（<180/<160）更能反映"市场已经定价的程度"。"""
+    surp = _surprise_pct(snap, "mpob_end_stock_mt",
+                         "mpob_end_stock_mt_expected")
+    if surp is None:
+        return None
+    if surp <= -5:
+        return RuleResult("palm.mpob.stock_below_expected",
+                          f"马来库存低于市场预期 {abs(surp):.1f}%",
+                          "malaysia", +12, "bullish",
+                          _evidence(snap, "mpob_end_stock_mt",
+                                    "mpob_end_stock_mt_expected"))
+    if surp >= 5:
+        return RuleResult("palm.mpob.stock_above_expected",
+                          f"马来库存高于市场预期 {surp:.1f}%",
+                          "malaysia", -10, "bearish",
+                          _evidence(snap, "mpob_end_stock_mt",
+                                    "mpob_end_stock_mt_expected"))
+    return None
+
+
+def rule_palm_mpob_prod_vs_expected(snap):
+    surp = _surprise_pct(snap, "mpob_cpo_production_mt",
+                         "mpob_cpo_production_mt_expected")
+    if surp is None:
+        return None
+    if surp <= -5:
+        return RuleResult("palm.mpob.prod_below_expected",
+                          f"马来产量低于市场预期 {abs(surp):.1f}%",
+                          "malaysia", +10, "bullish",
+                          _evidence(snap, "mpob_cpo_production_mt",
+                                    "mpob_cpo_production_mt_expected"))
+    if surp >= 5:
+        return RuleResult("palm.mpob.prod_above_expected",
+                          f"马来产量高于市场预期 {surp:.1f}%",
+                          "malaysia", -8, "bearish",
+                          _evidence(snap, "mpob_cpo_production_mt",
+                                    "mpob_cpo_production_mt_expected"))
+    return None
+
+
+def rule_palm_mpob_export_vs_expected(snap):
+    """出口高于预期 = 需求超预期 = 利多；低于预期 = 利空。"""
+    surp = _surprise_pct(snap, "mpob_export_mt",
+                         "mpob_export_mt_expected")
+    if surp is None:
+        return None
+    if surp >= 5:
+        return RuleResult("palm.mpob.export_above_expected",
+                          f"马来出口高于市场预期 {surp:.1f}%",
+                          "malaysia", +8, "bullish",
+                          _evidence(snap, "mpob_export_mt",
+                                    "mpob_export_mt_expected"))
+    if surp <= -5:
+        return RuleResult("palm.mpob.export_below_expected",
+                          f"马来出口低于市场预期 {abs(surp):.1f}%",
+                          "malaysia", -6, "bearish",
+                          _evidence(snap, "mpob_export_mt",
+                                    "mpob_export_mt_expected"))
+    return None
+
+
+def rule_palm_mpob_stock_vs_seasonal(snap):
+    """马来库存 vs 5 年同月均值。
+    显著低于 = 偏紧；显著高于 = 偏松。"""
+    dev = _seasonal_deviation_pct(snap, "mpob_end_stock_mt",
+                                   "mpob_end_stock_5y_avg_mt")
+    if dev is None:
+        return None
+    if dev <= -10:
+        return RuleResult("palm.mpob.stock_below_seasonal",
+                          f"马来库存 vs 5年同月均值 {dev:+.1f}%（偏紧）",
+                          "malaysia", +8, "bullish",
+                          _evidence(snap, "mpob_end_stock_mt",
+                                    "mpob_end_stock_5y_avg_mt"))
+    if dev >= 15:
+        return RuleResult("palm.mpob.stock_above_seasonal",
+                          f"马来库存 vs 5年同月均值 +{dev:.1f}%（偏松）",
+                          "malaysia", -8, "bearish",
+                          _evidence(snap, "mpob_end_stock_mt",
+                                    "mpob_end_stock_5y_avg_mt"))
+    return None
+
+
+def rule_palm_mpob_export_vs_seasonal(snap):
+    dev = _seasonal_deviation_pct(snap, "mpob_export_mt",
+                                   "mpob_export_5y_avg_mt")
+    if dev is None:
+        return None
+    if dev >= 10:
+        return RuleResult("palm.mpob.export_above_seasonal",
+                          f"马来出口 vs 5年同月均值 +{dev:.1f}%（需求超季节性）",
+                          "malaysia", +6, "bullish",
+                          _evidence(snap, "mpob_export_mt",
+                                    "mpob_export_5y_avg_mt"))
+    if dev <= -10:
+        return RuleResult("palm.mpob.export_below_seasonal",
+                          f"马来出口 vs 5年同月均值 {dev:+.1f}%（需求弱于季节性）",
+                          "malaysia", -5, "bearish",
+                          _evidence(snap, "mpob_export_mt",
+                                    "mpob_export_5y_avg_mt"))
+    return None
+
+
+def rule_palm_demand_vs_seasonal(snap):
+    """印度 + 中国合计棕油进口 vs 5 年同月均值。"""
+    india = _num(snap, "india_palm_import_mt")
+    india_avg = _num(snap, "india_palm_import_5y_avg_mt")
+    china = _num(snap, "china_palm_import_mt")
+    china_avg = _num(snap, "china_palm_import_5y_avg_mt")
+    if None in (india, india_avg, china, china_avg) \
+            or india_avg + china_avg == 0:
+        return None
+    total = india + china
+    total_avg = india_avg + china_avg
+    dev = (total - total_avg) / total_avg * 100
+    if dev >= 10:
+        return RuleResult("palm.demand.above_seasonal",
+                          f"中印合计棕油进口 vs 5年同月 +{dev:.1f}%",
+                          "demand_in_cn", +6, "bullish",
+                          _evidence(snap, "india_palm_import_mt",
+                                    "india_palm_import_5y_avg_mt",
+                                    "china_palm_import_mt",
+                                    "china_palm_import_5y_avg_mt"))
+    if dev <= -10:
+        return RuleResult("palm.demand.below_seasonal",
+                          f"中印合计棕油进口 vs 5年同月 {dev:+.1f}%（弱于季节性）",
+                          "demand_in_cn", -6, "bearish",
+                          _evidence(snap, "india_palm_import_mt",
+                                    "china_palm_import_mt",
+                                    "india_palm_import_5y_avg_mt",
+                                    "china_palm_import_5y_avg_mt"))
+    return None
+
+
 PALM_RULES: list[Callable] = [
     rule_palm_indo_dry,
     rule_palm_indo_b50,
@@ -484,6 +708,14 @@ PALM_RULES: list[Callable] = [
     rule_palm_substitute_oils_up,
     rule_palm_import_demand_recovery,
     rule_palm_mpob_stock_surge,
+    # v2 预期差
+    rule_palm_mpob_stock_vs_expected,
+    rule_palm_mpob_prod_vs_expected,
+    rule_palm_mpob_export_vs_expected,
+    # v2 季节性
+    rule_palm_mpob_stock_vs_seasonal,
+    rule_palm_mpob_export_vs_seasonal,
+    rule_palm_demand_vs_seasonal,
 ]
 
 
@@ -669,6 +901,57 @@ def rule_rubber_futures_money_flow_flag(snap):
     return None
 
 
+def rule_rubber_qingdao_vs_seasonal(snap):
+    """青岛保税库存 vs 5 年同月均值。"""
+    dev = _seasonal_deviation_pct(snap, "qingdao_bonded_stock_kt",
+                                   "qingdao_bonded_stock_5y_avg_kt")
+    if dev is None:
+        return None
+    if dev <= -10:
+        return RuleResult("rubber.inv.qingdao_below_seasonal",
+                          f"青岛库存 vs 5年同月 {dev:+.1f}%（偏紧）",
+                          "inventory", +6, "bullish",
+                          _evidence(snap, "qingdao_bonded_stock_kt",
+                                    "qingdao_bonded_stock_5y_avg_kt"))
+    if dev >= 15:
+        return RuleResult("rubber.inv.qingdao_above_seasonal",
+                          f"青岛库存 vs 5年同月 +{dev:.1f}%（偏松）",
+                          "inventory", -6, "bearish",
+                          _evidence(snap, "qingdao_bonded_stock_kt",
+                                    "qingdao_bonded_stock_5y_avg_kt"))
+    return None
+
+
+def rule_rubber_tire_op_vs_seasonal(snap):
+    """半钢+全钢开工率 vs 5 年同期均值。
+    高于季节性表示需求强；低于表示弱（如春节/检修季外）。"""
+    semi = _num(snap, "china_semi_steel_tire_operating_rate_pct")
+    semi_avg = _num(snap, "china_semi_steel_tire_op_rate_5y_avg_pct")
+    full = _num(snap, "china_full_steel_tire_operating_rate_pct")
+    full_avg = _num(snap, "china_full_steel_tire_op_rate_5y_avg_pct")
+    if None in (semi, semi_avg, full, full_avg):
+        return None
+    # 平均偏离
+    dev_semi = semi - semi_avg
+    dev_full = full - full_avg
+    dev = (dev_semi + dev_full) / 2
+    if dev >= 3:
+        return RuleResult("rubber.tire_op_above_seasonal",
+                          f"轮胎开工 vs 5年同期 +{dev:.1f}pp（需求超季节性）",
+                          "china_demand", +6, "bullish",
+                          _evidence(snap, "china_semi_steel_tire_operating_rate_pct",
+                                    "china_semi_steel_tire_op_rate_5y_avg_pct",
+                                    "china_full_steel_tire_operating_rate_pct",
+                                    "china_full_steel_tire_op_rate_5y_avg_pct"))
+    if dev <= -3:
+        return RuleResult("rubber.tire_op_below_seasonal",
+                          f"轮胎开工 vs 5年同期 {dev:+.1f}pp（弱于季节性）",
+                          "china_demand", -6, "bearish",
+                          _evidence(snap, "china_semi_steel_tire_operating_rate_pct",
+                                    "china_full_steel_tire_operating_rate_pct"))
+    return None
+
+
 RUBBER_RULES: list[Callable] = [
     rule_rubber_thai_latex_up,
     rule_rubber_thai_cuplump_up,
@@ -683,6 +966,9 @@ RUBBER_RULES: list[Callable] = [
     rule_rubber_oil_up_demand_down,
     rule_rubber_tire_op_down_stock_up,
     rule_rubber_futures_money_flow_flag,
+    # v2 季节性
+    rule_rubber_qingdao_vs_seasonal,
+    rule_rubber_tire_op_vs_seasonal,
 ]
 
 
