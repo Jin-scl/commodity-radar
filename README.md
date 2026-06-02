@@ -1,5 +1,9 @@
 # commodity_radar
 
+[![tests](https://github.com/Jin-scl/commodity-radar/actions/workflows/tests.yml/badge.svg)](https://github.com/Jin-scl/commodity-radar/actions/workflows/tests.yml)
+[![python](https://img.shields.io/badge/python-3.11%2B-blue.svg)](https://www.python.org/downloads/)
+[![license](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 > 白糖 / 棕榈油 / 天然橡胶 的基本面风险雷达。
 > 每日跟踪关键指标，输出 0-100 风险分 + Markdown 日报 + Telegram/Email/飞书 预警。
 
