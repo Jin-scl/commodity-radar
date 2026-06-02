@@ -202,7 +202,42 @@ def build_parser() -> argparse.ArgumentParser:
                     help="回填多少天（默认 8 天，覆盖 7 日变化）")
     sp.set_defaults(func=cmd_seed)
 
+    sp = sub.add_parser("backtest", help="Monte Carlo 回测 + 阈值校准建议")
+    sp.add_argument("--commodity", default="all",
+                    help="品种 (sugar/palm/rubber/all)")
+    sp.add_argument("--iterations", type=int, default=1000,
+                    help="迭代次数（默认 1000）")
+    sp.add_argument("--noise", type=float, default=0.25,
+                    help="噪声标准差，0.25 表示 sigma=0.25")
+    sp.add_argument("--seed", type=int, default=42,
+                    help="随机种子（默认 42，可复现）")
+    sp.set_defaults(func=cmd_backtest)
+
     return p
+
+
+def cmd_backtest(args):
+    from src.backtest import (
+        analyze_and_render, run_backtest, write_backtest_report,
+    )
+    from src.utils import load_config, resolve_path
+    logger = get_logger()
+    cfg = load_config()
+    if args.commodity == "all":
+        commodities = cfg["commodities"]
+    else:
+        commodities = [args.commodity]
+    reports_dir = resolve_path(cfg["paths"]["reports"])
+    for c in commodities:
+        logger.info("backtest %s: %d iterations, noise=%.2f, seed=%d",
+                    c, args.iterations, args.noise, args.seed)
+        results = run_backtest(c, iterations=args.iterations,
+                                noise_std=args.noise, seed=args.seed)
+        report = analyze_and_render(results)
+        path = write_backtest_report(report, reports_dir, c)
+        logger.info("backtest %s done -> %s", c, path)
+        print(f"Backtest {c}: {path}")
+    return 0
 
 
 def main(argv: list[str] | None = None) -> int:

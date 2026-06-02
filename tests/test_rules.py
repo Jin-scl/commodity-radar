@@ -192,9 +192,15 @@ def test_palm_mpob_prod_above_seasonal_no_trigger():
         mpob_cpo_production_mt=1.8, mpob_cpo_production_5y_avg_mt=1.7)) is None
 
 def test_palm_export_up_stock_down_triggers():
+    """v2 阈值收紧到 ±3% 双向。"""
     r = rules.rule_palm_mpob_export_up_stock_down(_snap(
         mpob_export_mom_change_pct=5, mpob_stock_mom_change_pct=-3))
     assert r and r.score_delta == 10
+
+def test_palm_export_small_change_no_trigger():
+    """微小变化不触发（原算法 +1%/-1% 会触发，新算法要求 ±3%）。"""
+    assert rules.rule_palm_mpob_export_up_stock_down(_snap(
+        mpob_export_mom_change_pct=1, mpob_stock_mom_change_pct=-1)) is None
 
 def test_palm_export_down_no_trigger():
     assert rules.rule_palm_mpob_export_up_stock_down(_snap(
@@ -222,14 +228,22 @@ def test_palm_substitute_oils_mixed_no_trigger():
         rapeseed_oil_consecutive_up_days=1,
         sunflower_oil_consecutive_up_days=1)) is None
 
-def test_palm_import_recovery_china_triggers():
+def test_palm_import_recovery_both_required():
+    """v2 改为 AND：中印需要同步 >=5% 才触发。"""
     r = rules.rule_palm_import_demand_recovery(_snap(
-        china_palm_import_mom_change_pct=8, india_palm_import_mom_change_pct=0))
+        china_palm_import_mom_change_pct=8, india_palm_import_mom_change_pct=6))
     assert r and r.score_delta == 8
+
+def test_palm_import_recovery_china_only_no_trigger():
+    """单边强不再触发（之前是 OR）。"""
+    assert rules.rule_palm_import_demand_recovery(_snap(
+        china_palm_import_mom_change_pct=8,
+        india_palm_import_mom_change_pct=0)) is None
 
 def test_palm_import_flat_no_trigger():
     assert rules.rule_palm_import_demand_recovery(_snap(
-        china_palm_import_mom_change_pct=1, india_palm_import_mom_change_pct=0)) is None
+        china_palm_import_mom_change_pct=1,
+        india_palm_import_mom_change_pct=0)) is None
 
 def test_palm_stock_surge_negative():
     r = rules.rule_palm_mpob_stock_surge(_snap(mpob_stock_mom_change_pct=35))

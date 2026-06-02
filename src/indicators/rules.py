@@ -235,7 +235,7 @@ def rule_sugar_brazil_crush_yoy_down(snap):
     v = _num(snap, "brazil_cs_crush_yoy_pct")
     if v is None:
         return None
-    if v < 0:
+    if v <= -1:  # 回测调优：要求显著下降，避免噪声触发
         return RuleResult("sugar.brazil.crush_yoy_down",
                           f"巴西中南部压榨量同比 {v:.1f}%",
                           "brazil", +5, "bullish",
@@ -299,7 +299,7 @@ def rule_sugar_eu_beet_area_down(snap):
     v = _num(snap, "eu_beet_area_change_pct")
     if v is None:
         return None
-    if v < 0:
+    if v <= -1:  # 回测调优
         return RuleResult("sugar.eu.beet_area_down",
                           f"欧盟甜菜种植面积下降 {abs(v):.1f}%",
                           "china_eu", +5, "bullish",
@@ -492,11 +492,12 @@ def rule_palm_mpob_production_below_seasonal(snap):
 
 
 def rule_palm_mpob_export_up_stock_down(snap):
+    """回测调优：要求 export >= 3% 且 stock <= -3%，避免微小波动触发。"""
     e = _num(snap, "mpob_export_mom_change_pct")
     s = _num(snap, "mpob_stock_mom_change_pct")
     if e is None or s is None:
         return None
-    if e > 0 and s < 0:
+    if e >= 3 and s <= -3:
         return RuleResult("palm.mpob.export_up_stock_down",
                           f"马来出口环比 +{e:.1f}%、库存环比 {s:.1f}%",
                           "malaysia", +10, "bullish",
@@ -534,11 +535,12 @@ def rule_palm_substitute_oils_up(snap):
 
 
 def rule_palm_import_demand_recovery(snap):
+    """回测调优：从 OR 改成 AND（单边强不够，需要中印同步），避免 92% 触发率。"""
     cn = _num(snap, "china_palm_import_mom_change_pct", 0) or 0
     ind = _num(snap, "india_palm_import_mom_change_pct", 0) or 0
-    if cn >= 5 or ind >= 5:
+    if cn >= 5 and ind >= 5:
         return RuleResult("palm.import_recovery",
-                          f"中国/印度棕油进口恢复 (中{cn:.1f}% / 印{ind:.1f}%)",
+                          f"中印棕油进口同步恢复 (中{cn:.1f}% / 印{ind:.1f}%)",
                           "demand_in_cn", +8, "bullish",
                           _evidence(snap, "china_palm_import_mt",
                                     "india_palm_import_mt",
@@ -773,9 +775,10 @@ def rule_rubber_anrpc_downgrade(snap):
 
 
 def rule_rubber_tire_op_rate_up(snap):
+    """回测调优：要求双方至少 +0.5pp，避免微小波动触发。"""
     s = _num(snap, "china_semi_steel_op_rate_change_pct", 0) or 0
     f = _num(snap, "china_full_steel_op_rate_change_pct", 0) or 0
-    if s > 0 and f > 0:
+    if s >= 0.5 and f >= 0.5:
         return RuleResult("rubber.china.tire_op_up",
                           f"半钢 +{s:.1f}% 与全钢 +{f:.1f}% 开工同步上升",
                           "china_demand", +10, "bullish",
@@ -788,7 +791,7 @@ def rule_rubber_china_tire_export_yoy_up(snap):
     v = _num(snap, "china_tire_export_yoy_pct")
     if v is None:
         return None
-    if v > 0:
+    if v >= 3:  # 回测调优：>3% 才视为有意义的同比增长
         return RuleResult("rubber.china.tire_export_yoy_up",
                           f"中国轮胎出口同比 +{v:.1f}%",
                           "china_demand", +5, "bullish",
@@ -797,9 +800,10 @@ def rule_rubber_china_tire_export_yoy_up(snap):
 
 
 def rule_rubber_china_import_up_stock_down(snap):
+    """回测调优：要求 import >= 3% 且 stock <= -1.5%。"""
     imp = _num(snap, "china_natural_rubber_import_mom_pct", 0) or 0
     qd = _num(snap, "qingdao_bonded_stock_change_pct", 0) or 0
-    if imp > 0 and qd < 0:
+    if imp >= 3 and qd <= -1.5:
         return RuleResult("rubber.china.import_up_stock_down",
                           f"中国天胶进口环比 +{imp:.1f}% & 库存 {qd:.1f}%",
                           "china_demand", +10, "bullish",
@@ -814,7 +818,7 @@ def rule_rubber_qingdao_stock_down(snap):
     v = _num(snap, "qingdao_bonded_stock_change_pct")
     if v is None:
         return None
-    if v < 0:
+    if v <= -1.5:  # 回测调优
         return RuleResult("rubber.inv.qingdao_down",
                           f"青岛保税库存 {v:.1f}%",
                           "inventory", +10, "bullish",
@@ -824,13 +828,14 @@ def rule_rubber_qingdao_stock_down(snap):
 
 
 def rule_rubber_shfe_ine_stock_down(snap):
+    """回测调优：要求至少一边 <= -1%。"""
     ru = _num(snap, "shfe_ru_stock_change_pct")
     nr = _num(snap, "ine_nr20_stock_change_pct")
-    if (ru is not None and ru < 0) or (nr is not None and nr < 0):
+    if (ru is not None and ru <= -1) or (nr is not None and nr <= -1):
         which = []
-        if ru is not None and ru < 0:
+        if ru is not None and ru <= -1:
             which.append(f"上期所 RU {ru:.1f}%")
-        if nr is not None and nr < 0:
+        if nr is not None and nr <= -1:
             which.append(f"INE NR20 {nr:.1f}%")
         return RuleResult("rubber.inv.shfe_ine_down",
                           " / ".join(which),

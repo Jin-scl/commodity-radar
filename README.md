@@ -341,6 +341,60 @@ v2 加入两套**相对基准**规则，与绝对阈值并存（category cap 抑
 
 ---
 
+## Monte Carlo 回测
+
+由于没有真实"未来价格 ground truth"做监督，我们用 **机制性回测**：
+基于 `manual_inputs.yaml` 的 baseline 加噪声生成 N 个随机 snapshot，跑评分体系，统计：
+
+- 分数分布（mean/median/P10/P25/.../P90）
+- 等级分布（绿/黄/橙/红/紫）
+- 每条规则的触发率
+- 每个 category 的贡献分布
+- 价格确认状态分布
+
+### 命令
+
+```bash
+python main.py backtest                              # 三品种各 1000 次
+python main.py backtest --commodity palm             # 仅棕榈油
+python main.py backtest --iterations 5000            # 更大样本
+python main.py backtest --noise 0.4                  # 更宽噪声分布
+python main.py backtest --seed 123                   # 复现实验
+```
+
+输出到 `reports/backtest_<commodity>_<date>.md`。
+
+### 自动校准建议
+
+报告末尾会列出问题规则：
+
+```
+- `palm.mpob.export_up_stock_down` 触发率 100% — 阈值可能太松
+- `palm.brent.sustained_up` 触发率 0.1% — 阈值可能太严
+```
+
+**已用回测调过的规则**（实际改进）：
+
+| Rule | 之前 | 之后 | 原因 |
+|---|---|---|---|
+| `palm.mpob.export_up_stock_down` | export>0 AND stock<0 | export≥3% AND stock≤-3% | 100% → 47% |
+| `palm.import_recovery` | china≥5% OR india≥5% | china≥5% AND india≥5% | 92% → ~30% |
+| `sugar.brazil.crush_yoy_down` | yoy<0 | yoy≤-1% | 100% → 80% |
+| `sugar.eu.beet_area_down` | <0 | ≤-1% | 100% → 91% |
+| `rubber.china.tire_op_up` | semi>0 AND full>0 | semi≥0.5 AND full≥0.5 | 100% → 97% |
+| `rubber.china.tire_export_yoy_up` | yoy>0 | yoy≥3% | 100% → 97% |
+| `rubber.inv.qingdao_down` | <0 | ≤-1.5% | 100% → 94% |
+| 等等… | | | |
+
+剩下的高触发率（80-97%）反映**当前 baseline 本身就处于"偏多"状态**（Niño 1.0、印度降雨偏少、青岛库存下降中），不是规则缺陷。
+真实的阈值校准需要真实数据跑 30+ 天后再做。
+
+### 整数变量特殊处理
+
+`*_consecutive_*_days` 这类离散计数字段用 **Poisson(λ=baseline)** 采样，而非高斯噪声 — 否则"连续上涨 3 日"会被推到不合理的浮点数。
+
+---
+
 ## 数据源说明
 
 > 🔵 = 真实自动抓取  ⚪ = 仍依赖 manual_inputs.yaml
