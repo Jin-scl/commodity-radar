@@ -144,12 +144,24 @@ REPORT_TEMPLATE = """# Commodity Radar Daily Report - {{ date }}
 
 ## 数据缺失与注意事项
 
-{% if missing_notes -%}
-{% for n in missing_notes -%}
-- {{ n }}
+{% if data_status.critical -%}
+**⚠️ 数据缺失（评分忽略此项）**
+{% for n in data_status.critical -%}
+- `{{ n }}`
 {% endfor %}
-{%- else -%}
-- *本期数据完整*
+{% endif -%}
+{% if data_status.stale -%}
+**⚠️ 数据过期**（freshness 阈值之外，规则贡献已自动衰减 ×0.4）
+{% for n in data_status.stale -%}
+- `{{ n }}`
+{% endfor %}
+{% endif -%}
+{% if data_status.manual_normal_count -%}
+ℹ️ 另有 **{{ data_status.manual_normal_count }}** 个指标为手动维护（`manual_inputs.yaml`），本期数据正常、置信度合格。
+这部分主要是政策/月报/付费数据源（印度糖产量预估、ANRPC、印尼 B40/B50 政策、各产区降雨距平等），无免费稳定 API，按基本面研究行业惯例由人工维护。
+{% endif -%}
+{% if not data_status.critical and not data_status.stale and not data_status.manual_normal_count -%}
+- *本期数据完整且全部自动抓取*
 {%- endif %}
 
 ---
@@ -232,24 +244,50 @@ def select_key_indicators(commodity: str, all_indicators: list[dict],
     return out
 
 
-def build_missing_notes(snapshot: dict, key_names: list[str]) -> list[str]:
-    notes = []
+def build_missing_notes(snapshot: dict, key_names: list[str]) -> dict:
+    """把指标按状态分三类：
+
+    - critical: value 缺失，规则评分忽略此项（真问题，要醒目）
+    - stale: confidence=low（freshness 过期，贡献已自动衰减）
+    - manual_normal_count: is_manual=True 但数据正常 + 不过期 ——
+      这是设计常态（很多基本面数据没有免费 API），不应该跟"缺失"混在一起
+
+    设计：critical 和 stale 列名展示；manual_normal 只汇总一句话。
+    """
+    critical: list[str] = []
+    stale: list[str] = []
+    manual_normal_count = 0
+    seen: set[str] = set()
     for n in key_names:
-        if n not in snapshot or snapshot[n].get("value") in (None, ""):
-            notes.append(f"指标 `{n}` 缺失，本期评分忽略此项")
-        elif snapshot[n].get("is_manual"):
-            notes.append(f"指标 `{n}` 使用手动输入（manual_inputs.yaml）")
-        elif snapshot[n].get("confidence") == "low":
-            notes.append(f"指标 `{n}` 数据较旧（confidence=low）")
-    # 去重并保持顺序
-    seen = set()
-    uniq = []
-    for n in notes:
         if n in seen:
             continue
         seen.add(n)
-        uniq.append(n)
-    return uniq
+        entry = snapshot.get(n)
+        if not entry or entry.get("value") in (None, ""):
+            critical.append(n)
+        elif entry.get("confidence") == "low":
+            stale.append(n)
+        elif entry.get("is_manual"):
+            manual_normal_count += 1
+    return {
+        "critical": critical,
+        "stale": stale,
+        "manual_normal_count": manual_normal_count,
+    }
+
+
+def merge_missing_notes(items: list[dict]) -> dict:
+    """合并多个 build_missing_notes 输出。"""
+    out = {"critical": [], "stale": [], "manual_normal_count": 0}
+    for it in items:
+        for n in it.get("critical", []):
+            if n not in out["critical"]:
+                out["critical"].append(n)
+        for n in it.get("stale", []):
+            if n not in out["stale"]:
+                out["stale"].append(n)
+        out["manual_normal_count"] += it.get("manual_normal_count", 0)
+    return out
 
 
 def render_report(
@@ -271,7 +309,7 @@ def render_report(
     env.globals["fmt_change"] = _format_change
 
     enriched = []
-    missing = []
+    status_parts: list[dict] = []
     for s in scores:
         c = s["commodity"]
         all_inds = indicators_by_commodity.get(c, [])
@@ -279,8 +317,9 @@ def render_report(
         s_copy["key_indicators"] = select_key_indicators(c, all_inds)
         enriched.append(s_copy)
         snap = snapshots_by_commodity.get(c, {})
-        missing.extend(build_missing_notes(snap, [i["name"] for i in
-                                                  s_copy["key_indicators"]]))
+        status_parts.append(build_missing_notes(
+            snap, [i["name"] for i in s_copy["key_indicators"]]))
+    data_status = merge_missing_notes(status_parts)
 
     generated_at = datetime.now().isoformat(timespec="seconds")
     body_tpl = env.from_string(REPORT_TEMPLATE)
@@ -289,7 +328,7 @@ def render_report(
         commodities=enriched,
         labels=COMMODITY_LABELS,
         alerts=alerts,
-        missing_notes=missing,
+        data_status=data_status,
         generated_at=generated_at,
     )
     if include_frontmatter:
