@@ -29,6 +29,7 @@ tags:
 {{ c.commodity }}_level: {{ c.risk_level }}
 {{ c.commodity }}_confidence: {{ c.confidence_score or 0 }}
 {{ c.commodity }}_triggered_confidence: {{ c.triggered_confidence if c.triggered_confidence is not none else 0 }}
+{{ c.commodity }}_price_confirmation: {{ (c.price_confirmation or {}).status or 'unknown' }}
 {{ c.commodity }}_change_1d: {{ c.score_change_1d if c.score_change_1d is not none else 0 }}
 {{ c.commodity }}_change_7d: {{ c.score_change_7d if c.score_change_7d is not none else 0 }}
 {%- endfor %}
@@ -70,6 +71,21 @@ REPORT_TEMPLATE = """# Commodity Radar Daily Report - {{ date }}
 - 中性标记：{% for f in c.neutral_flags %}{{ f.flag }}{% if not loop.last %} / {% endif %}{% endfor %}
 {% endif %}
 
+{% if c.price_confirmation and c.price_confirmation.signals -%}
+### 价格确认
+
+**状态**：`{{ c.price_confirmation.status }}` — {{ c.price_confirmation.message }}
+{% if c.price_confirmation.weighted_pct is not none -%}
+**方向加权得分**：{{ c.price_confirmation.weighted_pct }}/100（正数=价格偏多，负数=偏空）
+{% endif %}
+
+| 信号 | 值 | 方向 | 权重 | 数据置信度 |
+|---|---:|:---:|---:|---|
+{% for s in c.price_confirmation.signals -%}
+| {{ s.label }} | {{ s.value }} | {{ '↑' if s.side == 'up' else ('↓' if s.side == 'down' else '→') }} | {{ s.weight }} | {{ s.confidence or '—' }} |
+{% endfor %}
+
+{% endif %}
 {% if c.factor_diff and (c.factor_diff.added or c.factor_diff.removed) -%}
 ### 较昨日变化来源
 {% if c.factor_diff.added -%}

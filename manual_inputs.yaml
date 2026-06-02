@@ -181,6 +181,27 @@ sugar:
   china_sugar_production_mt: {value: 10.0, unit: "million MT"}
   china_sugar_import_mt: {value: 4.2, unit: "million MT"}
 
+  # ---- 价格确认 ----
+  # 这些字段不直接加分，但用于判定"价格是否确认基本面方向"
+  ice_raw_sugar_price_usd:
+    value: 18.5
+    unit: "cents/lb"
+    notes: "ICE 11 号原糖近月"
+  ice_raw_sugar_change_pct_5d:
+    value: 1.2
+    unit: "%"
+    notes: "5 日累计涨跌幅；>0.5% 视为上涨"
+  london_white_sugar_price_usd:
+    value: 520
+    unit: "USD/MT"
+    notes: "伦敦 5 号白糖近月"
+  london_white_sugar_change_pct_5d: {value: 0.6, unit: "%"}
+  usd_brl_rate:
+    value: 5.15
+    unit: "BRL/USD"
+    notes: "雷亚尔；上升 = 巴西出口竞争力增强 = 利空国际糖价"
+  usd_brl_change_pct_5d: {value: -0.5, unit: "%"}
+
 # =====================================================================
 # 棕榈油
 # =====================================================================
@@ -251,6 +272,18 @@ palm:
   # ---- 衍生信号 ----
   brent_diesel_crack_usd: {value: 22.0, unit: "USD/bbl"}
   biodiesel_margin_usd: {value: 60.0, unit: "USD/MT"}
+
+  # ---- 价格确认 ----
+  bmd_palm_oil_price_myr:
+    value: 4150
+    unit: "MYR/MT"
+    notes: "马来西亚 BMD 棕榈油近月"
+  bmd_palm_oil_change_pct_5d: {value: 1.5, unit: "%"}
+  bmd_calendar_spread_myr:
+    value: -45
+    unit: "MYR/MT"
+    notes: "近-远月价差；负=远月升水（contango，市场宽松）；正=back（紧张）"
+  bmd_calendar_spread_change_5d: {value: 8, unit: "MYR/MT", notes: "5日变化"}
 
 # =====================================================================
 # 天然橡胶
@@ -327,6 +360,23 @@ rubber:
   nr_futures_up_but_spot_flat:
     value: false
     notes: "true=可能是资金行情；规则会在报告中加标记而非加分"
+
+  # ---- 价格确认 ----
+  shfe_ru_price_cny:
+    value: 14250
+    unit: "CNY/MT"
+    notes: "上期所 RU 主力合约"
+  shfe_ru_change_pct_5d: {value: 0.8, unit: "%"}
+  ine_nr20_price_cny:
+    value: 12800
+    unit: "CNY/MT"
+    notes: "INE 20 号胶主力合约"
+  ine_nr20_change_pct_5d: {value: 1.0, unit: "%"}
+  ru_nr_spread_cny:
+    value: 1450
+    unit: "CNY/MT"
+    notes: "RU - NR20 价差；过窄=深色胶溢价收敛/混合胶利润压缩"
+  ru_nr_spread_change_5d: {value: -50, unit: "CNY/MT", notes: "负=价差收窄"}
 
 # =====================================================================
 # 政策/新闻 — 手动录入近期重要事件

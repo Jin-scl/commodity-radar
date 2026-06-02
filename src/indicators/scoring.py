@@ -20,8 +20,11 @@ def _classify(score: int, levels: list[dict]) -> tuple[str, str, str]:
 
 
 def _conclude(score: int, change_1d: Optional[int],
-              change_7d: Optional[int]) -> str:
-    """生成中性结论文字（绝不出现买卖）。"""
+              change_7d: Optional[int],
+              price_confirmation: Optional[dict] = None) -> str:
+    """生成中性结论文字（绝不出现买卖）。
+    融入价格确认状态，让结论更接近"风险雷达"而非"指标清单"。
+    """
     parts = []
     if score >= 71:
         parts.append("整体偏多，风险信号集中")
@@ -42,7 +45,123 @@ def _conclude(score: int, change_1d: Optional[int],
             parts.append("风险下降")
     if change_7d is not None and change_7d >= 20:
         parts.append("近 7 日累计风险上升较快，需要继续验证")
+    # 价格确认（只在基本面有方向时融入）
+    if price_confirmation and score >= 31:
+        msg = price_confirmation.get("message")
+        if msg:
+            parts.append(msg)
     return "；".join(parts) or "中性，需要继续验证"
+
+
+# =====================================================================
+# 价格确认模块
+# =====================================================================
+# 每个品种用一组价格信号判定"价格是否确认基本面方向"。
+# 不直接参与 final_score，输出独立的 confirmation status。
+PRICE_SIGNALS: dict[str, list[dict]] = {
+    "sugar": [
+        {"name": "ice_raw_sugar_change_pct_5d",
+         "weight": 2.0, "label": "ICE 11号原糖 5日变化", "threshold": 0.5},
+        {"name": "london_white_sugar_change_pct_5d",
+         "weight": 1.5, "label": "伦敦5号白糖 5日变化", "threshold": 0.5},
+        # 雷亚尔贬值（USD/BRL ↑）= 巴西糖出口竞争力增强 = 利空国际糖价
+        # 因此与"基本面偏多"是 diverging；invert 取负号
+        {"name": "usd_brl_change_pct_5d",
+         "weight": 1.0, "label": "USD/BRL 雷亚尔 5日变化", "threshold": 0.3,
+         "invert": True},
+    ],
+    "palm": [
+        {"name": "bmd_palm_oil_change_pct_5d",
+         "weight": 2.0, "label": "BMD 棕榈油 5日变化", "threshold": 0.5},
+        # 近月强于远月（spread 上升）= 偏紧；反向放映现货紧张
+        {"name": "bmd_calendar_spread_change_5d",
+         "weight": 1.0, "label": "BMD 近远月价差 5日变化", "threshold": 5},
+        # 豆棕价差扩大 = 棕油相对便宜，需求替代提升（看绝对值变化方向）
+        # 这里粗简化：价差正且不缩小视为偏多确认
+        {"name": "biodiesel_margin_usd",
+         "weight": 0.8, "label": "生柴利润", "threshold": 0},
+    ],
+    "rubber": [
+        {"name": "shfe_ru_change_pct_5d",
+         "weight": 2.0, "label": "上期所 RU 5日变化", "threshold": 0.5},
+        {"name": "ine_nr20_change_pct_5d",
+         "weight": 1.5, "label": "INE 20号胶 5日变化", "threshold": 0.5},
+        # 现货升水（正）= 现货强 = 偏多确认
+        {"name": "spot_premium_discount_yuan",
+         "weight": 1.0, "label": "现货升贴水", "threshold": 50},
+    ],
+}
+
+
+def _compute_price_confirmation(commodity: str, final_score: int,
+                                snapshot: dict) -> dict:
+    """根据 final_score 方向与价格信号判定确认状态。
+
+    返回 {status, message, weighted_pct, signals}
+      status: confirmed / partial / weak / diverging / no_data / neutral
+      weighted_pct: -100 ~ +100，价格方向加权得分
+      signals: 每条价格信号 {name, label, value, side, weight, confidence}
+    """
+    sig_cfg = PRICE_SIGNALS.get(commodity, [])
+    signals: list[dict] = []
+    for cfg in sig_cfg:
+        entry = snapshot.get(cfg["name"])
+        if not entry or entry.get("value") in (None, ""):
+            continue
+        try:
+            val = float(entry["value"])
+        except (TypeError, ValueError):
+            continue
+        eff_val = -val if cfg.get("invert") else val
+        threshold = float(cfg.get("threshold", 0.5))
+        if eff_val > threshold:
+            side = "up"
+        elif eff_val < -threshold:
+            side = "down"
+        else:
+            side = "flat"
+        signals.append({
+            "name": cfg["name"],
+            "label": cfg["label"],
+            "value": val,
+            "side": side,
+            "weight": float(cfg.get("weight", 1.0)),
+            "confidence": entry.get("confidence"),
+        })
+
+    if not signals:
+        return {"status": "no_data",
+                "message": "缺少价格数据，确认状态未知",
+                "weighted_pct": None, "signals": []}
+
+    # 基本面中性时，价格确认非必要
+    if final_score < 31:
+        return {"status": "neutral",
+                "message": "基本面中性，价格确认非必要",
+                "weighted_pct": None, "signals": signals}
+
+    weighted = 0.0
+    total = 0.0
+    for s in signals:
+        w = s["weight"]
+        if s["side"] == "up":
+            weighted += w
+        elif s["side"] == "down":
+            weighted -= w
+        total += w
+    pct = (weighted / total) if total else 0.0
+
+    if pct >= 0.5:
+        status, msg = "confirmed", "价格已确认基本面方向"
+    elif pct > 0:
+        status, msg = "partial", "价格部分确认基本面"
+    elif pct > -0.5:
+        status, msg = "weak", "价格确认偏弱，需要继续验证"
+    else:
+        status, msg = "diverging", "价格与基本面背离，持续性存疑"
+    return {"status": status, "message": msg,
+            "weighted_pct": int(round(pct * 100)),
+            "signals": signals}
 
 
 # 默认评分参数（可被 config.yaml::scoring 覆盖）
@@ -230,7 +349,11 @@ def evaluate_commodity(commodity: str, snapshot: dict,
             "direction": "up" if final_score > int(prev1["final_score"]) else "down",
         }
 
-    conclusion = _conclude(final_score, change_1d, change_7d)
+    # 价格确认（独立维度，不参与 final_score；融入 conclusion 文字）
+    price_confirmation = _compute_price_confirmation(commodity, final_score,
+                                                      snapshot)
+    conclusion = _conclude(final_score, change_1d, change_7d,
+                           price_confirmation=price_confirmation)
 
     return {
         "commodity": commodity,
@@ -241,6 +364,7 @@ def evaluate_commodity(commodity: str, snapshot: dict,
         "risk_level_label": label,
         "confidence_score": confidence_score,
         "triggered_confidence": triggered_confidence,
+        "price_confirmation": price_confirmation,
         "score_change_1d": change_1d,
         "score_change_7d": change_7d,
         "bullish_factors": bullish,
@@ -295,5 +419,6 @@ def persist_scores(results: dict[str, dict], db: Database,
                 "triggered_count": r["triggered_count"],
                 "factor_diff": r.get("factor_diff", {}),
                 "regime_change": r.get("regime_change"),
+                "price_confirmation": r.get("price_confirmation"),
             },
         })
