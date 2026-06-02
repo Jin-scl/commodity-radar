@@ -9,13 +9,31 @@
 
 ## 特性
 
-- ✅ ENSO（Niño 3.4 / ONI / SOI）自动抓取 NOAA CPC
-- ✅ 市场价格用 yfinance（Brent / 豆油等）
+**数据层**
+- ✅ ENSO（Niño 3.4 / ONI）真实抓取 NOAA CPC + manual 兜底
+- ✅ 市场价格 yfinance（Brent / 豆油）+ manual 补齐（菜油/葵油/丁二烯等）
 - ✅ MPOB / ANRPC / 印度糖业等不稳定数据 → `manual_inputs.yaml` 手动维护
 - ✅ 任何 fetcher 失败 → 自动 fallback + 报告显式标注「该数据为手动输入」
-- ✅ SQLite 存储所有指标和评分历史，支持 1日 / 7日 风险变化对比
-- ✅ 触发阈值后发送预警（Telegram / Email / 飞书 Webhook）
-- ✅ **Obsidian 集成**：报告自动写入 vault + YAML frontmatter，支持 Dataview 查询
+- ✅ **freshness 自动降级**：超过阈值的数据 confidence 自动从 high→medium→low
+
+**评分体系（v3）**
+- ✅ 42+ 条规则覆盖天气 / 库存 / 产量 / 政策 / 价格 / 替代品
+- ✅ **数据置信度衰减**：high×1.0 / medium×0.8 / low×0.4 直接乘到 score_delta
+- ✅ **Category 封顶**：同 category 总贡献 cap 在 ±25（按品种精细化，抑制重复加分）
+- ✅ **预期差规则**（vs 市场预期 _expected）+ **季节性基准**（vs 5y 同月均值 _5y_avg）
+- ✅ **价格确认模块**：confirmed / partial / weak / diverging / **price_leading** / price_watch
+- ✅ **双置信度**：整体置信度 + 触发置信度（真正推动分数的字段质量）
+
+**报告 & 预警**
+- ✅ Markdown 日报 + **Obsidian 双写** + YAML frontmatter（支持 Dataview 查询）
+- ✅ "较昨日变化来源" diff（added / removed / persistent rule ids）
+- ✅ **等级穿越预警**（绿→黄/黄→橙 等，比纯阈值更稳）
+- ✅ 触发阈值后发送 Telegram / Email / 飞书 Webhook
+
+**工程**
+- ✅ SQLite 存储所有指标和评分历史，支持 1日 / 7日 / 任意日期回放
+- ✅ **Monte Carlo 回测**：检验评分体系稳定性，自动输出阈值校准建议
+- ✅ 163 单元测试覆盖规则 / 数据库 / 评分 / 价格确认 / freshness / 回测
 - ✅ macOS / Linux / VPS 通用，cron 友好
 
 ---
@@ -66,6 +84,8 @@ open reports/$(date +%F)_daily_report.md
 | `python main.py report --with-alerts` | 报告内包含预警章节（仍不持久化）|
 | `python main.py run-all` | fetch → score → report → alert（cron 用，唯一会写 scores 的） |
 | `python main.py seed --days 14` | 注入 14 天历史模拟数据 (`source='seed'`，不污染最新快照) |
+| `python main.py backtest` | Monte Carlo 回测三品种，输出阈值校准建议 |
+| `python main.py backtest --commodity palm --iterations 5000` | 单品种大样本回测 |
 
 > `--date` 真实按日期回放（`timestamp <= score_date` 过滤），所以 `score --date 2026-05-30` 不会用 5-31 之后写入的数据。
 > `report` 单独跑**不会清空** `scores.triggered_alerts_json`；要刷新预警必须用 `run-all`。
@@ -313,6 +333,16 @@ commodity_radar/
 
 **置信度加权**：v3 的 weighted_pct 是 `Σ(weight × confidence_mult × side) / Σ(weight × confidence_mult)`。
 所以全 manual medium 信号的 confirmed 强度低于全 yfinance high。报告里有 **价格确认置信度** 字段单独展示。
+
+**低置信度自动降级**：当 `price_confirmation_confidence < 60` 时，结论强度自动削弱：
+
+| 原 status | 降级到 | 文字 |
+|---|---|---|
+| confirmed | partial | 价格部分确认基本面（数据质量较低）|
+| diverging | weak | 价格确认偏弱（数据质量较低，背离结论不可靠）|
+| price_leading | price_watch | 价格出现倾向，但数据质量较低，建议观察 |
+
+避免"全 manual 低质量数据"被加权到 100/100 后给出过强结论。
 
 报告里有专门的 **"价格确认"** 章节，列出每个信号的值/方向/权重/置信度。frontmatter 也含 `{commodity}_price_confirmation` 字段，可用 Dataview 筛选。
 
