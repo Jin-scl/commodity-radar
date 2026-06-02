@@ -137,3 +137,77 @@ def test_price_confirmation_mixed_confidence_average():
                                       cfg=CFG)
     # 均值 = (100+70+30)/3 ≈ 66
     assert 60 <= pc["confidence_score"] <= 70
+
+
+# ---------- Round 5: 低置信度降级 status ----------
+def test_low_confidence_downgrades_confirmed_to_partial():
+    """全 low 数据 → confidence_score=30 < 60 → 降级 confirmed → partial。"""
+    snap = {
+        "ice_raw_sugar_change_pct_5d": _e(2.0, "low"),
+        "london_white_sugar_change_pct_5d": _e(1.5, "low"),
+        "usd_brl_change_pct_5d": _e(-1.0, "low"),
+    }
+    pc = _compute_price_confirmation("sugar", final_score=55, snapshot=snap,
+                                      cfg=CFG)
+    assert pc["confidence_score"] == 30
+    assert pc["status"] == "partial"
+    assert "数据质量较低" in pc["message"]
+
+
+def test_low_confidence_downgrades_price_leading():
+    """绿色基本面 + 低置信度价格强信号 → price_leading 降为 price_watch。"""
+    snap = {
+        "ice_raw_sugar_change_pct_5d": _e(2.0, "low"),
+        "london_white_sugar_change_pct_5d": _e(1.5, "low"),
+        "usd_brl_change_pct_5d": _e(-1.0, "low"),
+    }
+    pc = _compute_price_confirmation("sugar", final_score=15, snapshot=snap,
+                                      cfg=CFG)
+    assert pc["status"] == "price_watch"
+
+
+def test_high_confidence_keeps_confirmed():
+    """全 high 数据 → confidence_score=100 ≥ 60 → 不降级。"""
+    snap = {
+        "ice_raw_sugar_change_pct_5d": _e(2.0, "high"),
+        "london_white_sugar_change_pct_5d": _e(1.5, "high"),
+        "usd_brl_change_pct_5d": _e(-1.0, "high"),
+    }
+    pc = _compute_price_confirmation("sugar", final_score=55, snapshot=snap,
+                                      cfg=CFG)
+    assert pc["status"] == "confirmed"
+
+
+# ---------- Round 5: date-only event 24h 窗口精筛 ----------
+def test_date_only_event_outside_24h_excluded():
+    """22:00 跑 hours=24，前一天 date-only event 应被精筛排除（按 00:00 算超 24h）。"""
+    from datetime import datetime, timedelta
+    from unittest.mock import patch
+    # 用 patch 把 db.now 固定到 22:00
+    fixed_now = datetime(2026, 6, 2, 22, 0, 0).astimezone()
+    yesterday = (fixed_now - timedelta(days=1)).strftime("%Y-%m-%d")  # 2026-06-01
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Database(Path(tmp) / "test.db")
+        db.save_event("palm", "policy", "yesterday event",
+                      severity="critical", timestamp=yesterday)
+        # 在 datetime 模块上 patch
+        with patch("src.storage.database.datetime") as mock_dt:
+            mock_dt.now = lambda *args, **kwargs: fixed_now
+            mock_dt.strptime = datetime.strptime
+            evs = db.get_recent_events(hours=24)
+    msgs = [e["message"] for e in evs]
+    # yesterday (06-01 00:00) 到 fixed_now (06-02 22:00) = 46h，> 24h → 排除
+    assert "yesterday event" not in msgs
+
+
+def test_date_only_event_within_24h_included():
+    """today date-only event 在 24h 内应被纳入。"""
+    from datetime import datetime
+    today = datetime.now().strftime("%Y-%m-%d")
+    with tempfile.TemporaryDirectory() as tmp:
+        db = Database(Path(tmp) / "test.db")
+        db.save_event("palm", "policy", "today event",
+                      severity="critical", timestamp=today)
+        evs = db.get_recent_events(hours=24)
+    assert any(e["message"] == "today event" for e in evs)

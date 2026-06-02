@@ -163,7 +163,7 @@ def _compute_price_confirmation(commodity: str, final_score: int,
     pc_conf = int(sum(conf_scores) / len(conf_scores))
 
     if final_score < 31:
-        # v3：基本面中性时，仍尊重价格信号
+        # 基本面中性时，仍尊重价格信号
         if pct >= 0.5:
             status = "price_leading"
             msg = "价格领先偏多，但基本面尚未确认"
@@ -186,6 +186,19 @@ def _compute_price_confirmation(commodity: str, final_score: int,
             status, msg = "weak", "价格确认偏弱，需要继续验证"
         else:
             status, msg = "diverging", "价格与基本面背离，持续性存疑"
+
+    # 低置信度降级：低质量数据不能产生强烈结论
+    # pc_conf < 60 时，confirmed → partial, diverging → weak,
+    # price_leading → price_watch（保留方向但削弱结论强度）
+    if pc_conf < 60:
+        downgrade = {
+            "confirmed": ("partial", "价格部分确认基本面（数据质量较低）"),
+            "diverging": ("weak", "价格确认偏弱（数据质量较低，背离结论不可靠）"),
+            "price_leading": ("price_watch",
+                              "价格出现倾向，但数据质量较低，建议观察"),
+        }
+        if status in downgrade:
+            status, msg = downgrade[status]
 
     return {"status": status, "message": msg,
             "weighted_pct": pct_int, "signals": signals,

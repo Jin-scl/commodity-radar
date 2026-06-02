@@ -78,6 +78,9 @@ REPORT_TEMPLATE = """# Commodity Radar Daily Report - {{ date }}
 {% if c.price_confirmation.weighted_pct is not none -%}
 **方向加权得分**：{{ c.price_confirmation.weighted_pct }}/100（正数=价格偏多，负数=偏空）
 {% endif %}
+{% if c.price_confirmation.confidence_score is not none -%}
+**价格确认置信度**：{{ c.price_confirmation.confidence_score }}/100（< 60 时结论会自动降级）
+{% endif %}
 
 | 信号 | 值 | 方向 | 权重 | 数据置信度 |
 |---|---:|:---:|---:|---|

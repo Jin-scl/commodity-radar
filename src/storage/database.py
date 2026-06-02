@@ -315,13 +315,18 @@ class Database:
         sql += " ORDER BY timestamp DESC"
         with self._conn() as c:
             candidates = [dict(r) for r in c.execute(sql, params).fetchall()]
-        # 二次精筛：date-only 的当作 00:00:00 算
+        # 二次精筛：date-only 当作当天 00:00:00 精确比较，
+        # 避免"窗口偏宽"（比如 22:00 跑 24h 时，30 多小时前的 date-only event 不应纳入）
         out = []
         for ev in candidates:
             ts = ev.get("timestamp", "")
-            if len(ts) == 10:
-                # date-only：如果日期 >= since_date 就纳入（按 00:00 算）
-                if ts >= since_date:
+            if len(ts) == 10:  # date-only "YYYY-MM-DD"
+                try:
+                    ts_dt = datetime.strptime(ts, "%Y-%m-%d").replace(
+                        tzinfo=since.tzinfo)
+                except ValueError:
+                    continue
+                if ts_dt >= since:
                     out.append(ev)
             else:
                 if ts >= since_iso:

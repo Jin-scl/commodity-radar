@@ -89,19 +89,22 @@ def cmd_run_all(args):
     logger.info("fetch summary: %s", summary)
 
     # 2) score（在 build_snapshots 之后；只算一次）
+    # effective_date：未指定 --date 时显式用 today_str()，保证 evaluate_all 和
+    # evaluate_alerts 用同一个日期窗口，避免事件查询走 24h"现在"语义
+    effective_date = args.date or today_str()
     cfg = load_config()
     commodities = cfg["commodities"]
-    _, snaps = build_snapshots(db, commodities, as_of_date=args.date)
-    results = evaluate_all(snaps, db=db, score_date=args.date, config=cfg)
+    _, snaps = build_snapshots(db, commodities, as_of_date=effective_date)
+    results = evaluate_all(snaps, db=db, score_date=effective_date, config=cfg)
 
     # 3) alerts（评分完成后，对 events 表 + scores 共同判断；按 score_date 回放）
-    alerts = evaluate_alerts(results, db, cfg, score_date=args.date)
-    dispatch_result = dispatch(alerts, args.date or today_str())
+    alerts = evaluate_alerts(results, db, cfg, score_date=effective_date)
+    dispatch_result = dispatch(alerts, effective_date)
     logger.info("alerts dispatched: %s", dispatch_result)
 
     # 4) generate report（让 generate 内部处理 persist + alerts 分组，
     #    并复用上面算好的 results，避免重算）
-    path = generate(score_date=args.date, persist=True, db=db,
+    path = generate(score_date=effective_date, persist=True, db=db,
                     alerts=alerts, precomputed_results=results)
     logger.info("=== run-all done -> %s ===", path)
     print(f"Report: {path}")
